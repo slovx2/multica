@@ -1630,7 +1630,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		if opts.PlanMode {
 			mode = "plan"
 		}
-		turnParams["collaborationMode"] = map[string]any{"mode": mode, "settings": map[string]any{"model": c.resolvedModel}}
+		turnParams["collaborationMode"] = map[string]any{"mode": mode, "settings": map[string]any{"model": c.resolvedModel, "reasoning_effort": nil}}
 		// Per-turn reasoning override. Mirrors the per-thread injection in
 		// startOrResumeThread; keeping both in sync is enforced by the
 		// shared `codexReasoningInjection` fixture in codex_test.go (see
@@ -1671,7 +1671,10 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		}
 		finishRunContextDone := func() {
 			waitingForTurn = false
-			if runCtx.Err() == context.DeadlineExceeded {
+			if errMsg := c.getTurnError(); errMsg != "" {
+				finishFirstItemWait("turn_failed")
+				finalStatus, finalError = "failed", errMsg
+			} else if runCtx.Err() == context.DeadlineExceeded {
 				finishFirstItemWait("execution_timeout")
 				finalStatus = "timeout"
 				finalError = fmt.Sprintf("codex timed out after %s", timeout)
@@ -2180,6 +2183,11 @@ func applyCodexReasoningEffort(params map[string]any, level string) {
 	}
 	if _, isTurnStart := params["input"]; isTurnStart {
 		params["effort"] = level
+		if mode, ok := params["collaborationMode"].(map[string]any); ok {
+			if settings, ok := mode["settings"].(map[string]any); ok {
+				settings["reasoning_effort"] = level
+			}
+		}
 		return
 	}
 	cfg, _ := params["config"].(map[string]any)

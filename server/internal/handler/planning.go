@@ -43,7 +43,7 @@ func (h *Handler) planningRequest(w http.ResponseWriter, r *http.Request, userID
 		return r, false
 	}
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
-	if actorType != "agent" || r.Header.Get("X-Task-ID") == "" {
+	if r.Header.Get("X-Actor-Source") != "task_token" || actorType != "agent" || r.Header.Get("X-Task-ID") == "" {
 		return r, true
 	}
 	id, ok := parseUUIDOrBadRequest(w, r.Header.Get("X-Task-ID"), "task id")
@@ -169,7 +169,7 @@ func (h *Handler) ReportChatCard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "failed to commit card")
 		return
 	}
-	writeJSON(w, 200, saved)
+	writeJSON(w, 200, chatCardToResponse(saved))
 }
 
 func (h *Handler) ListChatCards(w http.ResponseWriter, r *http.Request) {
@@ -186,8 +186,20 @@ func (h *Handler) ListChatCards(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "failed to list cards")
 		return
 	}
-	if cards == nil {
-		cards = []db.ChatCard{}
+	result := make([]ChatCardResponse, 0, len(cards))
+	for _, card := range cards {
+		result = append(result, chatCardToResponse(card))
 	}
-	writeJSON(w, 200, cards)
+	writeJSON(w, 200, result)
+}
+
+// JSON columns must remain objects at the HTTP boundary, not base64 bytes.
+type ChatCardResponse struct {
+	db.ChatCard
+	Payload  json.RawMessage `json:"payload"`
+	Response json.RawMessage `json:"response"`
+}
+
+func chatCardToResponse(card db.ChatCard) ChatCardResponse {
+	return ChatCardResponse{ChatCard: card, Payload: json.RawMessage(card.Payload), Response: json.RawMessage(card.Response)}
 }

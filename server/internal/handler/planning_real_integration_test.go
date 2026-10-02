@@ -73,7 +73,7 @@ func TestPlanningRealAgentHTTPIntegration(t *testing.T) {
 			}
 			resume := ""
 			currentTask := initialTaskID
-			var lastCard db.ChatCard
+			var lastCard ChatCardResponse
 			run := func(prompt string, mode bool) {
 				t.Helper()
 				backend, err := agent.New(provider, agent.Config{ExecutablePath: executable, Logger: slog.Default(), Env: map[string]string{

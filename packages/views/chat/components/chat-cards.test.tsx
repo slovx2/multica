@@ -47,4 +47,26 @@ describe("planning cards", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
     expect(screen.getByText("Superseded")).toBeInTheDocument();
   });
+
+  it("keeps decisions disabled after success while the parent still has a pending card", async () => {
+    mount(plan);
+    fireEvent.change(screen.getByRole("textbox", { name: "Feedback" }), { target: { value: "Include timeout tests" } });
+    const approve = screen.getByRole("button", { name: "Approve, create/update issues" });
+    fireEvent.click(approve);
+    await waitFor(() => expect(api.sendChatMessage).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(approve).toBeDisabled());
+    fireEvent.click(approve);
+    expect(api.sendChatMessage).toHaveBeenCalledTimes(1);
+    expect(api.sendChatMessage).toHaveBeenCalledWith("session", "", undefined, expect.objectContaining({ action: "approve", feedback: "Include timeout tests" }));
+  });
+
+  it("shows saved answers after reopening an answered card", () => {
+    mount({ ...plan, kind: "user_question", status: "answered", payload: {
+      title: "Saved question", questions: [{ id: "q", header: "Tests", text: "Choose", selection_mode: "single", options: [{ id: "unit", label: "Unit", description: "" }], free_text: { allowed: true, secret: false }, required: true }],
+    }, response: { action: "answer", answers: [{ question_id: "q", selected_option_ids: ["unit"], text: "Also race tests" }] } });
+    expect(screen.getByRole("radio", { name: "Unit" })).toBeChecked();
+    expect(screen.getByRole("textbox")).toHaveValue("Also race tests");
+    expect(screen.getByRole("textbox")).toBeDisabled();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
 });

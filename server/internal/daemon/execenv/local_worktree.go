@@ -125,14 +125,14 @@ func (p LocalWorktreeParams) owner() branchOwner {
 // Tasks with neither an issue nor a chat session have no conversation to
 // continue and get "", "".
 func localWorktreeConversation(params PrepareParams) (key, id string) {
+	if params.Task.ChatSessionID != "" {
+		return "chat-" + taskKey(params.Task.ChatSessionID), params.Task.ChatSessionID
+	}
 	if params.Task.IssueID != "" {
 		if params.IssueIdentifier != "" {
 			return params.IssueIdentifier, params.Task.IssueID
 		}
 		return taskKey(params.Task.IssueID), params.Task.IssueID
-	}
-	if params.Task.ChatSessionID != "" {
-		return "chat-" + taskKey(params.Task.ChatSessionID), params.Task.ChatSessionID
 	}
 	return "", ""
 }

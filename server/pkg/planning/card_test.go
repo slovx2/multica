@@ -34,7 +34,7 @@ func TestPlanDecisionNeverImplements(t *testing.T) {
 	c := Card{Kind: "plan", Markdown: "# Plan\nChange the code"}
 	for _, action := range []string{"approve", "reject"} {
 		_, prompt, err := c.Prompt(Decision{Action: action, Feedback: "add tests"})
-		if err != nil || !strings.Contains(prompt, "do not implement") {
+		if err != nil || !strings.Contains(prompt, "do not implement") || !strings.Contains(prompt, "add tests") {
 			t.Fatalf("missing issue-only boundary: %s %v", prompt, err)
 		}
 	}

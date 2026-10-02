@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/pkg/planning"
 )
 
@@ -25,22 +26,39 @@ type claudePlanning struct {
 	err     error
 	seen    map[string]bool
 	roots   []string
+	cwd     string
 }
 
 func newClaudePlanning(cwd string, env []string) *claudePlanning {
-	p := &claudePlanning{pending: map[string]string{}, seen: map[string]bool{}}
+	p := &claudePlanning{cwd: cwd, pending: map[string]string{}, seen: map[string]bool{}}
 	if config, err := claudeConfigDir(env, cwd); err == nil {
 		p.roots = append(p.roots, filepath.Join(config, "plans"))
 	}
 	p.roots = append(p.roots, filepath.Join(cwd, ".claude", "plans"))
 	return p
 }
+func (p *claudePlanning) absolutePath(path string) string {
+	if path != "" && !filepath.IsAbs(path) {
+		// Preserve symlink/.. traversal for ResolveSymlinksBestEffort; Join
+		// would clean it before we can compare the actual destination.
+		return p.cwd + string(filepath.Separator) + path
+	}
+	return path
+}
 func (p *claudePlanning) safePath(path string) bool {
-	if !filepath.IsAbs(path) {
+	if path == "" {
+		return false
+	}
+	real, err := util.ResolveSymlinksBestEffort(p.absolutePath(path))
+	if err != nil {
 		return false
 	}
 	for _, root := range p.roots {
-		rel, err := filepath.Rel(root, filepath.Clean(path))
+		resolvedRoot, err := util.ResolveSymlinksBestEffort(root)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(resolvedRoot, real)
 		if err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return true
 		}
@@ -67,7 +85,7 @@ func (p *claudePlanning) observe(msg claudeSDKMessage) {
 	defer p.mu.Unlock()
 	for _, b := range content.Content {
 		if b.Type == "tool_use" && (b.Name == "Write" || b.Name == "Edit") && p.safePath(b.Input.Path) {
-			p.pending[b.ID] = b.Input.Path
+			p.pending[b.ID] = p.absolutePath(b.Input.Path)
 		}
 		if b.Type == "tool_result" {
 			if path, ok := p.pending[b.ToolUseID]; ok {
@@ -99,7 +117,7 @@ func (p *claudePlanning) snapshot(ctx context.Context, input json.RawMessage) (s
 			// An explicit path supports resumed plans that were written in an
 			// earlier process, while the current successful write wins.
 			if path == "" && p.safePath(in.Path) {
-				path = in.Path
+				path = p.absolutePath(in.Path)
 			}
 			if path != "" {
 				real, err := filepath.EvalSymlinks(path)
@@ -150,7 +168,22 @@ func (p *claudePlanning) handle(ctx context.Context, msg claudeSDKMessage, sessi
 		return true
 	}
 	if req.ToolName != "AskUserQuestion" && req.ToolName != "ExitPlanMode" {
-		return false
+		if !opts.PlanMode {
+			return false
+		}
+		switch req.ToolName {
+		case "Read", "Glob", "Grep", "LS", "WebSearch", "WebFetch":
+			return false
+		case "Write", "Edit":
+			var input struct {
+				Path string `json:"file_path"`
+			}
+			if json.Unmarshal(req.Input, &input) == nil && p.safePath(input.Path) {
+				return false
+			}
+		}
+		_ = denyClaudePlanning(w, msg.RequestID, "Plan mode permits reading and writing the plan file only. Stop and propose the work in a plan.")
+		return true
 	}
 	if opts.PersistCard == nil {
 		_ = denyClaudePlanning(w, msg.RequestID, "Interactive cards require a Multica chat. Stop and ask in an issue comment.")

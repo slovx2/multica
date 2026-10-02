@@ -94,11 +94,11 @@ func HermesSessionStorePath(daemonProfile, agentID, sourceHome string, task Task
 // session database task-local rather than inventing a shard nothing will
 // resume.
 func hermesConversationSegment(task TaskContextForEnv) string {
-	if issue := sanitizePathSegment(task.IssueID); issue != "" {
-		return issue
-	}
 	if chat := sanitizePathSegment(task.ChatSessionID); chat != "" {
 		return "chat_" + chat
+	}
+	if issue := sanitizePathSegment(task.IssueID); issue != "" {
+		return issue
 	}
 	return ""
 }

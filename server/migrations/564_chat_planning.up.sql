@@ -1,7 +1,7 @@
-ALTER TABLE chat_session ADD COLUMN plan_mode boolean NOT NULL DEFAULT false;
+ALTER TABLE chat_session ADD COLUMN IF NOT EXISTS plan_mode boolean NOT NULL DEFAULT false;
 
 -- Soft relationships are validated and cleaned up by the application.
-CREATE TABLE chat_card (
+CREATE TABLE IF NOT EXISTS chat_card (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     workspace_id uuid NOT NULL,
     chat_session_id uuid NOT NULL,
@@ -16,7 +16,7 @@ CREATE TABLE chat_card (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE issue_chat_session (
+CREATE TABLE IF NOT EXISTS issue_chat_session (
     workspace_id uuid NOT NULL,
     issue_id uuid NOT NULL,
     chat_session_id uuid NOT NULL,

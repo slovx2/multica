@@ -13,6 +13,66 @@ import (
 	"github.com/multica-ai/multica/server/pkg/planning"
 )
 
+func TestClaudePlanPermissionsAndRelativeSnapshot(t *testing.T) {
+	cwd := t.TempDir()
+	plans := filepath.Join(cwd, ".claude", "plans")
+	if err := os.MkdirAll(plans, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plans, "p.md"), []byte("Current plan"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p := newClaudePlanning(cwd, nil)
+	body, err := p.snapshot(context.Background(), json.RawMessage(`{"planFilePath":".claude/plans/p.md","plan":"stale"}`))
+	if err != nil || body != "Current plan" {
+		t.Fatalf("relative plan: %q %v", body, err)
+	}
+	t.Run("symlink paths", func(t *testing.T) {
+		alias := filepath.Join(cwd, "alias")
+		if err := os.Symlink(plans, alias); err != nil {
+			t.Skip(err)
+		}
+		body, err := p.snapshot(context.Background(), mustMarshal(t, map[string]string{"planFilePath": filepath.Join(alias, "p.md")}))
+		if err != nil || body != "Current plan" {
+			t.Fatalf("symlink plan: %q %v", body, err)
+		}
+		outside := t.TempDir()
+		if err := os.Symlink(outside, filepath.Join(plans, "escape")); err != nil {
+			t.Fatal(err)
+		}
+		if p.safePath(".claude/plans/escape/../outside.md") {
+			t.Fatal("symlink traversal escaped the plan directory")
+		}
+	})
+	for _, tc := range []struct {
+		tool, path string
+		denied     bool
+	}{
+		{"Bash", "", true}, {"Write", "app.go", true}, {"Write", ".claude/plans/new.md", false}, {"Read", "app.go", false},
+	} {
+		var out bytes.Buffer
+		msg := claudeSDKMessage{RequestID: "permission", Request: mustMarshal(t, map[string]any{"subtype": "can_use_tool", "tool_name": tc.tool, "input": map[string]string{"file_path": tc.path}})}
+		handled := p.handle(context.Background(), msg, "s", ExecOptions{PlanMode: true}, &out, func() {})
+		if handled != tc.denied {
+			t.Fatalf("%s %s: handled=%v", tc.tool, tc.path, handled)
+		}
+		if tc.denied && !strings.Contains(out.String(), `"behavior":"deny"`) {
+			t.Fatal(out.String())
+		}
+	}
+}
+
+func TestCodexPlanningReasoningEffort(t *testing.T) {
+	for _, mode := range []string{"plan", "default"} {
+		settings := map[string]any{"model": "fixture"}
+		params := map[string]any{"input": []any{}, "collaborationMode": map[string]any{"mode": mode, "settings": settings}}
+		applyCodexReasoningEffort(params, "high")
+		if params["effort"] != "high" || settings["reasoning_effort"] != "high" {
+			t.Fatalf("lost effort: %+v", params)
+		}
+	}
+}
+
 func TestClaudePlanFileSnapshotOverridesStaleInput(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "plans", "final.md")

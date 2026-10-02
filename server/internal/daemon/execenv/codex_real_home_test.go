@@ -113,6 +113,11 @@ func TestCodexSessionStoreKeyUsesChatSessionIDWhenIssueAbsent(t *testing.T) {
 	// When: their persistent Codex session-store keys are built.
 	keyA := codexSessionStoreKey("", taskA)
 	keyAAgain := codexSessionStoreKey("", taskA)
+	mixed := taskA
+	mixed.IssueID = "mentioned-issue"
+	if codexSessionStoreKey("", mixed) != keyA {
+		t.Fatal("mixed task lost chat store")
+	}
 	keyB := codexSessionStoreKey("", TaskContextForEnv{AgentID: agentID, ChatSessionID: chatB})
 
 	// Then: the key is stable for one chat and isolated from another chat.

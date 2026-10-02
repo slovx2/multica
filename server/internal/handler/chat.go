@@ -603,6 +603,21 @@ func (h *Handler) SetChatSessionArchived(w http.ResponseWriter, r *http.Request)
 	defer tx.Rollback(r.Context())
 	qtx := h.Queries.WithTx(tx)
 
+	if req.Archived {
+		if _, err := qtx.LockChatSessionForRuntimeBind(r.Context(), session.ID); err != nil {
+			writeError(w, 500, "failed to lock chat session")
+			return
+		}
+		pending, err := qtx.HasPendingPlanningIssueTask(r.Context(), session.ID)
+		if err != nil {
+			writeError(w, 500, "failed to check planning tasks")
+			return
+		}
+		if pending {
+			writeError(w, 409, "stop the linked issue task before archiving this chat")
+			return
+		}
+	}
 	updated, err := qtx.SetChatSessionArchived(r.Context(), db.SetChatSessionArchivedParams{
 		ID:       session.ID,
 		Archived: req.Archived,
@@ -746,6 +761,16 @@ func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 	// otherwise a builder-agent delete can deadlock with a concurrent claim.
 	if _, err := qtx.GetAgentForClaimUpdate(r.Context(), session.AgentID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to lock chat agent")
+		return
+	}
+
+	pending, err := qtx.HasPendingPlanningIssueTask(r.Context(), session.ID)
+	if err != nil {
+		writeError(w, 500, "failed to check planning tasks")
+		return
+	}
+	if pending {
+		writeError(w, 409, "stop the linked issue task before deleting this chat")
 		return
 	}
 
@@ -1736,6 +1761,15 @@ func (h *Handler) PrioritizeQueuedChatTask(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusInternalServerError, "failed to lock chat agent")
 		return
 	}
+	pending, checkErr := qtx.HasPendingPlanningIssueTask(r.Context(), session.ID)
+	if checkErr != nil {
+		writeError(w, 500, "failed to check planning tasks")
+		return
+	}
+	if pending {
+		writeError(w, 409, "stop the linked issue task before replacing the chat reply")
+		return
+	}
 	prioritized, err := qtx.PrioritizeQueuedChatTask(
 		r.Context(),
 		db.PrioritizeQueuedChatTaskParams{ID: taskID, ChatSessionID: session.ID},
@@ -1878,7 +1912,7 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 		queuedOnly = true
 	}
 
-	if task.ChatSessionID.Valid {
+	if task.ChatSessionID.Valid && !task.IssueID.Valid {
 		// Chat privacy: only the member who opened the conversation may
 		// cancel its task, even though the workspace is shared.
 		cs, err := h.Queries.GetChatSessionInWorkspace(r.Context(), db.GetChatSessionInWorkspaceParams{

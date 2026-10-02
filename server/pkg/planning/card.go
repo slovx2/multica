@@ -137,7 +137,7 @@ func (c Card) Prompt(d Decision) (string, string, error) {
 	if c.Kind == "plan" {
 		switch d.Action {
 		case "approve":
-			return "approved", "The plan has been approved. Use multica issue create/update to record it as issues. ONLY write issues; do not implement the plan.\n\nApproved plan:\n" + c.Markdown, nil
+			return "approved", "The plan has been approved. Use multica issue create/update to record it as issues. ONLY write issues; do not implement the plan.\n\nApproved plan:\n" + c.Markdown + "\n\nUser feedback:\n" + d.Feedback, nil
 		case "reject":
 			return "rejected", "The plan was rejected. Stay in plan mode and revise it; do not implement.\n\nPrevious plan:\n" + c.Markdown + "\n\nUser feedback:\n" + d.Feedback, nil
 		}

@@ -1385,12 +1385,12 @@ func (s *TaskService) enqueueIssueTaskWithCommentPlan(ctx context.Context, issue
 // deriving it from the issue assignee.
 func (s *TaskService) EnqueueTaskForMention(ctx context.Context, issue db.Issue, agentID pgtype.UUID, triggerCommentID pgtype.UUID, origin RunOrigin) (db.AgentTaskQueue, error) {
 	if triggerCommentID.Valid {
-		sessionID, err := s.LatestPlanningChat(ctx, issue, agentID)
+		sessionID, err := s.LatestPlanningChat(ctx, issue, agentID, triggerCommentID)
 		if err != nil {
 			return db.AgentTaskQueue{}, err
 		}
 		if sessionID.Valid {
-			ctx = WithPlanningChat(ctx, util.UUIDToString(sessionID), false)
+			ctx = context.WithValue(ctx, planningMentionKey{}, sessionID)
 		}
 	}
 
@@ -1473,28 +1473,25 @@ func (s *TaskService) enqueueMentionTaskWithCommentPlan(ctx context.Context, iss
 	var task db.AgentTaskQueue
 	err = s.runInTx(ctx, func(qtx *db.Queries) error {
 		var planningSession pgtype.UUID
-		if change, ok := ctx.Value(planningChatKey{}).(planningChatChange); ok {
-			planningSession, err = util.ParseUUID(change.ID)
-			if err != nil {
-				return err
-			}
-			if _, err = qtx.LockChatSessionForRuntimeBind(ctx, planningSession); err != nil {
+		if sessionID, ok := ctx.Value(planningMentionKey{}).(pgtype.UUID); ok && !isLeader {
+			planningSession = sessionID
+			if _, err = qtx.LockChatSessionForRuntimeBind(ctx, planningSession); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return err
 			}
 			cs, loadErr := qtx.GetChatSession(ctx, planningSession)
-			if loadErr != nil {
+			if loadErr != nil && !errors.Is(loadErr, pgx.ErrNoRows) {
 				return loadErr
 			}
-			if cs.Status != "active" || cs.AgentID != agentID || cs.WorkspaceID != issue.WorkspaceID {
-				return errors.New("planning chat is unavailable")
+			if loadErr != nil || cs.Status != "active" || cs.AgentID != agentID || cs.WorkspaceID != issue.WorkspaceID {
+				planningSession = pgtype.UUID{}
 			}
-			if cs.PlanMode {
+			if planningSession.Valid && cs.PlanMode {
 				runtime, e := qtx.GetAgentRuntime(ctx, agent.RuntimeID)
 				if e != nil {
 					return e
 				}
 				if !planning.Supported(runtime.Provider) {
-					return ErrPlanModeUnsupported
+					planningSession = pgtype.UUID{}
 				}
 			}
 		}
@@ -3198,7 +3195,7 @@ func (s *TaskService) settleQueuedChatInput(
 	task db.AgentTaskQueue,
 	action string,
 ) (*CancelledChatMessageResult, error) {
-	if !task.ChatSessionID.Valid {
+	if !task.ChatSessionID.Valid || task.IssueID.Valid {
 		return nil, nil
 	}
 	inputOwnerID := chatInputOwnerID(task)
@@ -3275,7 +3272,7 @@ func deleteUserChatInput(ctx context.Context, qtx *db.Queries, inputOwnerID pgty
 }
 
 func (s *TaskService) finalizeCancelledChatMessage(ctx context.Context, task db.AgentTaskQueue, opts CancelTaskOptions) *CancelledChatMessageResult {
-	if !task.ChatSessionID.Valid {
+	if !task.ChatSessionID.Valid || task.IssueID.Valid {
 		return nil
 	}
 	var cancelled *CancelledChatMessageResult

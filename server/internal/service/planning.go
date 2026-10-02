@@ -16,6 +16,9 @@ var ErrChatCardDecision = errors.New("invalid or already resolved chat card")
 var ErrPlanModeUnsupported = errors.New("plan mode is supported only by Claude and Codex")
 
 type planningChatKey struct{}
+
+// Mention routing is distinct from issue linking; assignment/squad paths must not inherit it.
+type planningMentionKey struct{}
 type planningChatChange struct {
 	ID     string
 	Unlink bool
@@ -72,13 +75,28 @@ func prepareChatDecision(ctx context.Context, q *db.Queries, session db.ChatSess
 
 // LatestPlanningChat is shared by fresh mention enqueue and queued-comment
 // coalescing, so a pending issue run cannot bypass the planner conversation.
-func (s *TaskService) LatestPlanningChat(ctx context.Context, issue db.Issue, agentID pgtype.UUID) (pgtype.UUID, error) {
+func (s *TaskService) LatestPlanningChat(ctx context.Context, issue db.Issue, agentID, commentID pgtype.UUID) (pgtype.UUID, error) {
+	comment, err := s.Queries.GetComment(ctx, commentID)
+	if err != nil {
+		return pgtype.UUID{}, err
+	}
+	if comment.AuthorType != "member" || comment.IssueID != issue.ID {
+		return pgtype.UUID{}, nil
+	}
+	agent, err := s.Queries.GetAgent(ctx, agentID)
+	if err != nil {
+		return pgtype.UUID{}, err
+	}
+	runtime, err := s.Queries.GetAgentRuntime(ctx, agent.RuntimeID)
+	if err != nil {
+		return pgtype.UUID{}, err
+	}
 	sessions, err := s.Queries.ListIssuePlanningChats(ctx, db.ListIssuePlanningChatsParams{WorkspaceID: issue.WorkspaceID, IssueID: issue.ID})
 	if err != nil {
 		return pgtype.UUID{}, err
 	}
 	for _, cs := range sessions {
-		if cs.AgentID == agentID && cs.Status == "active" {
+		if cs.AgentID == agentID && cs.Status == "active" && cs.CreatorID == comment.AuthorID && (!cs.PlanMode || planning.Supported(runtime.Provider)) {
 			return cs.ID, nil
 		}
 	}

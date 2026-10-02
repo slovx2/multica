@@ -5,6 +5,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -29,7 +30,7 @@ func TestPlanningProcessLifecycle(t *testing.T) {
 			if err := os.WriteFile(executable, fixture, 0700); err != nil {
 				t.Fatal(err)
 			}
-			backend, err := New(provider, Config{ExecutablePath: executable, Logger: slog.Default(), Env: map[string]string{"PLAN_PROVIDER": provider, "PLAN_ROOT": dir}})
+			backend, err := New(provider, Config{ExecutablePath: executable, Logger: slog.Default(), Env: map[string]string{"PLAN_PROVIDER": provider, "PLAN_ROOT": dir, "CODEX_HOME": filepath.Join(dir, "codex-home")}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -77,5 +78,31 @@ func TestPlanningProcessLifecycle(t *testing.T) {
 				t.Fatalf("modes=%v", modes)
 			}
 		})
+	}
+}
+
+func TestPlanningCodexPersistenceFailureIsNotCancellation(t *testing.T) {
+	dir := t.TempDir()
+	fixture, err := os.ReadFile("testdata/planning_fixture.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(dir, "fixture")
+	if err := os.WriteFile(executable, fixture, 0700); err != nil {
+		t.Fatal(err)
+	}
+	backend, err := New("codex", Config{ExecutablePath: executable, Logger: slog.Default(), Env: map[string]string{"PLAN_PROVIDER": "codex", "PLAN_ROOT": dir, "CODEX_HOME": filepath.Join(dir, "codex-home")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := backend.Execute(context.Background(), "question", ExecOptions{Cwd: dir, Model: "fixture-model", PlanMode: true, ThinkingLevel: "high", Timeout: 10 * time.Second, PersistCard: func(context.Context, planning.Card) error { return errors.New("card storage unavailable") }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range session.Messages {
+	}
+	result := <-session.Result
+	if result.Status != "failed" || !strings.Contains(result.Error, "card storage unavailable") {
+		t.Fatalf("lost persistence error: %+v", result)
 	}
 }

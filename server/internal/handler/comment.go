@@ -2480,7 +2480,7 @@ func (h *Handler) mergeCommentIntoPendingTask(ctx context.Context, issue db.Issu
 	}
 	var planningSession pgtype.UUID
 	if trigger.Source == commentTriggerSourceMentionAgent {
-		planningSession, err = h.TaskService.LatestPlanningChat(ctx, issue, trigger.Agent.ID)
+		planningSession, err = h.TaskService.LatestPlanningChat(ctx, issue, trigger.Agent.ID, newTriggerCommentID)
 		if err != nil {
 			return commentMergeError
 		}

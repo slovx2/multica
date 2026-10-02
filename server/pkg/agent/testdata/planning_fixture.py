@@ -37,6 +37,8 @@ for line in sys.stdin:
  if method=='initialize': emit({'id':ident,'result':{'userAgent':'fixture'}})
  elif method in ('thread/start','thread/resume'): emit({'id':ident,'result':{'thread':{'id':thread},'model':'fixture-model'}})
  elif method=='turn/start':
+  assert 'reasoning_effort' in p['collaborationMode']['settings']
+  assert p['collaborationMode']['settings']['reasoning_effort']==p.get('effort')
   mode=p['collaborationMode']['mode'];record(mode);prompt=os.environ.get('PLAN_STEP',str(p['input']));emit({'id':ident,'result':{'turn':{'id':turn}}})
   emit({'method':'turn/started','params':{'threadId':thread,'turn':{'id':turn}}})
   if 'question' in prompt:

@@ -68,12 +68,17 @@ func TestRunTaskPlanningLifecycle(t *testing.T) {
 			}{
 				{"question", true, "user_question"}, {"plan answer Blue", true, "plan"},
 				{"revise rejected add tests", true, "plan"}, {"approve only record issue", false, ""},
+				{"approve mention on issue", false, ""}, {"approve mention on another issue", false, ""},
 				{"question ignore stop", true, "user_question"},
 			}
 			for i, step := range steps {
 				t.Setenv("PLAN_STEP", step.prompt)
 				task := leaderReuseTestTask(fmt.Sprintf("planning-turn-%d", i))
 				task.IssueID = ""
+				if i == 4 || i == 5 {
+					task.IssueID = fmt.Sprintf("issue-%d", i)
+					task.IssueIdentifier = fmt.Sprintf("QORA-%d", i)
+				}
 				task.IsLeaderTask = false
 				task.ChatSessionID = "planning-chat"
 				task.ChatMessage = step.prompt
@@ -97,6 +102,12 @@ func TestRunTaskPlanningLifecycle(t *testing.T) {
 				mu.Unlock()
 				prior = result
 			}
+			ordinary := leaderReuseTestTask("ordinary-after-planning")
+			ordinary.IssueID = "issue-5"
+			ordinary.PriorWorkDir = prior.WorkDir
+			if _, ok := shouldReusePriorWorkdir(ordinary, nil, d.cfg.WorkspacesRoot); ok {
+				t.Fatal("ordinary issue reused private chat directory")
+			}
 			var modes []string
 			data, err := os.ReadFile(filepath.Join(root, "modes"))
 			if err != nil {
@@ -105,7 +116,7 @@ func TestRunTaskPlanningLifecycle(t *testing.T) {
 			if err = json.Unmarshal(data, &modes); err != nil {
 				t.Fatal(err)
 			}
-			if len(modes) != 5 || modes[0] != "plan" || modes[3] == "plan" || modes[4] != "plan" {
+			if len(modes) != len(steps) || modes[0] != "plan" || modes[3] == "plan" || modes[4] == "plan" || modes[5] == "plan" || modes[6] != "plan" {
 				t.Fatalf("wrong modes: %v", modes)
 			}
 		})

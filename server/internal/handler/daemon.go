@@ -2298,11 +2298,11 @@ func rerunSourceMatchesTaskScope(task, source db.AgentTaskQueue) bool {
 	if service.IsTriageTask(source) {
 		return false
 	}
-	if task.IssueID.Valid {
-		return source.IssueID.Valid && task.IssueID == source.IssueID
-	}
 	if task.ChatSessionID.Valid {
 		return source.ChatSessionID.Valid && task.ChatSessionID == source.ChatSessionID
+	}
+	if task.IssueID.Valid {
+		return !source.ChatSessionID.Valid && source.IssueID.Valid && task.IssueID == source.IssueID
 	}
 	return false
 }
@@ -2898,8 +2898,10 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 			resp.TriggerCommentContent = "The newest triggering comment is no longer available. Address every earlier comment included below."
 		}
 
-		// Resolve the prior agent session / workdir to resume.
-		if task.RerunOfTaskID.Valid {
+		// Mixed tasks resume exclusively from their chat below.
+		if task.ChatSessionID.Valid {
+			// Never fall back to an issue conversation, even for a new chat.
+		} else if task.RerunOfTaskID.Valid {
 			// Manual retry: resume precisely from the source task the user
 			// clicked, NOT the most-recent (agent, issue) row — a parallel task
 			// on the same issue must never hijack the resume (MUL-4869). The

@@ -1207,6 +1207,7 @@ SET status = 'cancelled', completed_at = now(), prepare_lease_expires_at = NULL,
     cancelled_by_name = $3
 WHERE id = $4
   AND chat_session_id = $5
+  AND issue_id IS NULL
   AND status = 'queued'
 RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, wait_reason, initiator_user_id, handoff_note, prepare_lease_expires_at, squad_id, runtime_mcp_overlay, escalation_for_task_id, fire_at, originator_user_id, runtime_connected_apps, coalesced_comment_ids, delivered_comment_ids, chat_input_task_id, chat_finalize_deferred_at, originator_source, delegated_from_task_id, retry_of_task_id, rerun_of_task_id, rule_version_id, trigger_evidence_kind, trigger_evidence_ref_id, accountable_user_id, session_rollout_missing, retired_session_id, quick_actions_disabled, regenerate_quick_actions_for, branch_name, durable_work_dir, channel_context_revision, comment_thread_id, cancelled_by_type, cancelled_by_id, cancelled_by_name, issue_snapshot
 `
@@ -1316,6 +1317,7 @@ UPDATE agent_task_queue AS queued
 SET status = 'cancelled', completed_at = now(), prepare_lease_expires_at = NULL,
     cancelled_by_type = 'system', cancelled_by_id = NULL, cancelled_by_name = NULL
 WHERE queued.chat_session_id = $1
+  AND queued.issue_id IS NULL
   AND queued.status = 'queued'
   AND queued.id IS DISTINCT FROM (SELECT id FROM head)
 RETURNING queued.id, queued.agent_id, queued.issue_id, queued.status, queued.priority, queued.dispatched_at, queued.started_at, queued.completed_at, queued.result, queued.error, queued.created_at, queued.context, queued.runtime_id, queued.session_id, queued.work_dir, queued.trigger_comment_id, queued.chat_session_id, queued.autopilot_run_id, queued.attempt, queued.max_attempts, queued.parent_task_id, queued.failure_reason, queued.trigger_summary, queued.force_fresh_session, queued.is_leader_task, queued.wait_reason, queued.initiator_user_id, queued.handoff_note, queued.prepare_lease_expires_at, queued.squad_id, queued.runtime_mcp_overlay, queued.escalation_for_task_id, queued.fire_at, queued.originator_user_id, queued.runtime_connected_apps, queued.coalesced_comment_ids, queued.delivered_comment_ids, queued.chat_input_task_id, queued.chat_finalize_deferred_at, queued.originator_source, queued.delegated_from_task_id, queued.retry_of_task_id, queued.rerun_of_task_id, queued.rule_version_id, queued.trigger_evidence_kind, queued.trigger_evidence_ref_id, queued.accountable_user_id, queued.session_rollout_missing, queued.retired_session_id, queued.quick_actions_disabled, queued.regenerate_quick_actions_for, queued.branch_name, queued.durable_work_dir, queued.channel_context_revision, queued.comment_thread_id, queued.cancelled_by_type, queued.cancelled_by_id, queued.cancelled_by_name, queued.issue_snapshot
@@ -4369,13 +4371,13 @@ const getLastTaskSession = `-- name: GetLastTaskSession :one
 WITH retired_sessions AS (
     SELECT DISTINCT r.retired_session_id AS session_id
     FROM agent_task_queue r
-    WHERE r.agent_id = $1 AND r.issue_id = $2
+    WHERE r.agent_id = $1 AND r.issue_id = $2 AND r.chat_session_id IS NULL
       AND COALESCE(r.context->>'type', '') <> 'triage'
       AND r.retired_session_id IS NOT NULL
 ), resume_overflow_at AS (
     SELECT MAX(COALESCE(t.completed_at, t.started_at, t.dispatched_at, t.created_at)) AS at
     FROM agent_task_queue t
-    WHERE t.agent_id = $1 AND t.issue_id = $2
+    WHERE t.agent_id = $1 AND t.issue_id = $2 AND t.chat_session_id IS NULL
       AND COALESCE(t.context->>'type', '') <> 'triage'
       AND t.status = 'failed'
       AND (
@@ -4388,7 +4390,7 @@ WITH retired_sessions AS (
         t.started_at, t.issue_snapshot,
         COALESCE(t.completed_at, t.started_at, t.dispatched_at, t.created_at) AS terminal_at
     FROM agent_task_queue t
-    WHERE t.agent_id = $1 AND t.issue_id = $2
+    WHERE t.agent_id = $1 AND t.issue_id = $2 AND t.chat_session_id IS NULL
       AND COALESCE(t.context->>'type', '') <> 'triage'
       AND t.session_id IS NOT NULL
       AND t.status IN ('completed', 'failed', 'cancelled')
@@ -4641,7 +4643,7 @@ func (q *Queries) GetLatestTaskRoleForIssueAndAgent(ctx context.Context, arg Get
 
 const getLatestTaskRolloutMissing = `-- name: GetLatestTaskRolloutMissing :one
 SELECT COALESCE(session_rollout_missing, FALSE) FROM agent_task_queue
-WHERE agent_id = $1 AND issue_id = $2
+WHERE agent_id = $1 AND issue_id = $2 AND chat_session_id IS NULL
   AND COALESCE(context->>'type', '') <> 'triage'
   AND status IN ('completed', 'failed')
   AND started_at IS NOT NULL
@@ -4856,6 +4858,19 @@ func (q *Queries) HasActiveTaskForIssueAndAgentInThread(ctx context.Context, arg
 	var has_active bool
 	err := row.Scan(&has_active)
 	return has_active, err
+}
+
+const hasPendingPlanningIssueTask = `-- name: HasPendingPlanningIssueTask :one
+SELECT EXISTS (SELECT 1 FROM agent_task_queue
+ WHERE chat_session_id = $1 AND issue_id IS NOT NULL
+ AND status IN ('queued', 'dispatched', 'running', 'waiting_local_directory', 'deferred'))
+`
+
+func (q *Queries) HasPendingPlanningIssueTask(ctx context.Context, chatSessionID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, hasPendingPlanningIssueTask, chatSessionID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const hasPendingTaskForIssue = `-- name: HasPendingTaskForIssue :one
@@ -7043,17 +7058,13 @@ func (q *Queries) MarkChatFinalizeDeferred(ctx context.Context, id pgtype.UUID) 
 
 const mergeCommentIntoPendingTask = `-- name: MergeCommentIntoPendingTask :one
 UPDATE agent_task_queue
-SET chat_session_id = COALESCE($1::uuid, chat_session_id),
-    context = CASE WHEN $1::uuid IS NOT NULL THEN
-        COALESCE(context, '{}'::jsonb) || (SELECT jsonb_build_object('plan_mode', cs.plan_mode) FROM chat_session cs WHERE cs.id = $1::uuid)
-        ELSE context END,
-    coalesced_comment_ids = (
+SET coalesced_comment_ids = (
         SELECT COALESCE(array_agg(DISTINCT e), '{}')
         FROM unnest(array_append(coalesced_comment_ids, trigger_comment_id)) AS e
-        WHERE e IS NOT NULL AND e <> $2::uuid
+        WHERE e IS NOT NULL AND e <> $1::uuid
     ),
-    trigger_comment_id = $2::uuid,
-    trigger_summary = COALESCE($3, trigger_summary),
+    trigger_comment_id = $1::uuid,
+    trigger_summary = COALESCE($2, trigger_summary),
     -- Re-attribution is ATOMIC (MUL-4302): folding a newly-arrived comment moves the
     -- WHOLE attribution snapshot to that comment's human — person columns, source
     -- label, delegation lineage, rule version, and evidence — computed by the caller
@@ -7061,20 +7072,21 @@ SET chat_session_id = COALESCE($1::uuid, chat_session_id),
     -- run showing B accountable while still pointing at A's stale source / evidence /
     -- level. accountable comes from the resolved Result (finalizeAttribution already
     -- guaranteed originator ⟹ accountable == originator; the cross-column CHECK backs it).
-    originator_user_id = $4::uuid,
-    accountable_user_id = $5::uuid,
-    originator_source = $6,
-    delegated_from_task_id = $7::uuid,
-    rule_version_id = $8::uuid,
-    trigger_evidence_kind = $9,
-    trigger_evidence_ref_id = $10::uuid,
-    runtime_mcp_overlay = $11,
-    runtime_connected_apps = $12
+    originator_user_id = $3::uuid,
+    accountable_user_id = $4::uuid,
+    originator_source = $5,
+    delegated_from_task_id = $6::uuid,
+    rule_version_id = $7::uuid,
+    trigger_evidence_kind = $8,
+    trigger_evidence_ref_id = $9::uuid,
+    runtime_mcp_overlay = $10,
+    runtime_connected_apps = $11
 WHERE id = (
     SELECT t.id FROM agent_task_queue t
-    WHERE t.context->>'wakeup_id' IS NULL AND t.issue_id = $13
-      AND t.agent_id = $14
-      AND t.comment_thread_id IS NOT DISTINCT FROM comment_thread_root_id($2::uuid)
+    WHERE t.context->>'wakeup_id' IS NULL AND t.issue_id = $12
+      AND t.agent_id = $13
+      AND t.chat_session_id IS NOT DISTINCT FROM $14::uuid
+      AND t.comment_thread_id IS NOT DISTINCT FROM comment_thread_root_id($1::uuid)
       AND (
           t.status = 'queued'
           OR (t.status = 'deferred' AND t.context->>'channel_issue_media_pending' = 'true')
@@ -7095,7 +7107,6 @@ RETURNING id, coalesced_comment_ids
 `
 
 type MergeCommentIntoPendingTaskParams struct {
-	PlanningChatSessionID   pgtype.UUID `json:"planning_chat_session_id"`
 	NewTriggerCommentID     pgtype.UUID `json:"new_trigger_comment_id"`
 	NewTriggerSummary       pgtype.Text `json:"new_trigger_summary"`
 	NewOriginatorUserID     pgtype.UUID `json:"new_originator_user_id"`
@@ -7109,6 +7120,7 @@ type MergeCommentIntoPendingTaskParams struct {
 	NewRuntimeConnectedApps []byte      `json:"new_runtime_connected_apps"`
 	IssueID                 pgtype.UUID `json:"issue_id"`
 	AgentID                 pgtype.UUID `json:"agent_id"`
+	PlanningChatSessionID   pgtype.UUID `json:"planning_chat_session_id"`
 	HeadSha                 pgtype.Text `json:"head_sha"`
 }
 
@@ -7161,7 +7173,6 @@ type MergeCommentIntoPendingTaskRow struct {
 // completion reconciliation unless no active task exists at all.
 func (q *Queries) MergeCommentIntoPendingTask(ctx context.Context, arg MergeCommentIntoPendingTaskParams) (MergeCommentIntoPendingTaskRow, error) {
 	row := q.db.QueryRow(ctx, mergeCommentIntoPendingTask,
-		arg.PlanningChatSessionID,
 		arg.NewTriggerCommentID,
 		arg.NewTriggerSummary,
 		arg.NewOriginatorUserID,
@@ -7175,6 +7186,7 @@ func (q *Queries) MergeCommentIntoPendingTask(ctx context.Context, arg MergeComm
 		arg.NewRuntimeConnectedApps,
 		arg.IssueID,
 		arg.AgentID,
+		arg.PlanningChatSessionID,
 		arg.HeadSha,
 	)
 	var i MergeCommentIntoPendingTaskRow

@@ -11,7 +11,7 @@ describe("planning response boundaries", () => {
   it("makes unknown card statuses inert and rejects malformed questions", () => {
     const card = { id: "c", task_id: "t", kind: "plan", status: "future", payload: { title: "Plan" } };
     expect(chatCardsSchema.parse([card])[0]?.status).toBe("superseded");
-    expect(chatCardsSchema.safeParse([{ ...card, payload: { title: "Question", questions: [{ id: 4 }] } }]).success).toBe(false);
+    expect(chatCardsSchema.parse([card, { ...card, payload: { title: "Question", questions: [{ id: 4 }] } }])).toHaveLength(1);
     expect(planningLinksSchema.safeParse([{ title: "missing id" }]).success).toBe(false);
   });
 });

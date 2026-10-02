@@ -6861,8 +6861,14 @@ func shouldReusePriorWorkdir(task Task, localAssignment *localDirectoryAssignmen
 	if marker.ManagedBy != execenv.TaskContextMarkerManagedBy || marker.AgentID != task.AgentID {
 		return "", false
 	}
+	if task.ChatSessionID != "" {
+		if prov.ChatSessionID != task.ChatSessionID || marker.ChatSessionID != task.ChatSessionID {
+			return "", false
+		}
+		return workdir, true
+	}
 	if task.IssueID != "" {
-		if prov.IssueID != task.IssueID || marker.IssueID != task.IssueID {
+		if prov.ChatSessionID != "" || marker.ChatSessionID != "" || prov.IssueID != task.IssueID || marker.IssueID != task.IssueID {
 			return "", false
 		}
 		return workdir, true

@@ -43,14 +43,16 @@ With a Claude Code or Codex runtime, turn on **Plan mode** above the input befor
 
 Native questions appear as cards with options and free-text fields. Answering starts the next turn in the same conversation. Native plans appear as Markdown cards:
 
-- **Approve, create/update issues** turns plan mode off and asks the agent to record the plan as issues without implementing it.
+- **Approve, create/update issues** turns plan mode off and asks the agent to record the plan, including any feedback you entered, as issues without implementing it.
 - **Reject** sends your feedback in a new plan-mode turn. A newer plan supersedes an older pending plan.
 
 The provider process ends while waiting for your decision. There is no “approve and implement” action.
 
 Issues created or updated from the chat are automatically linked. **Planning chats** on an issue and **Issues from this chat** provide navigation in both directions. Links do not grant access to another member's private chat.
 
-An explicit mention of the same planner on a linked issue resumes the most recently associated active conversation, including its directory and mode. The agent receives the triggering issue comment, replies on the issue, and leaves a follow-up record in Chat. Ordinary assignee notifications keep their existing behavior.
+When the conversation's creator explicitly mentions the same planner on a linked issue, it resumes their most recently associated active conversation, including its directory and mode. Mentions by other members run as ordinary issue tasks. The agent receives the triggering issue comment, replies on the issue, and leaves a follow-up record in Chat. Ordinary assignee tasks use separate sessions and directories.
+
+Clearing the chat queue skips linked issue replies. Stop those tasks explicitly on the issue, subject to the agent's access permissions. While one is pending, replacing a chat reply, archiving, or deleting the conversation is blocked so that the issue reply is not silently cancelled.
 
 You can also manage a link with the CLI:
 
