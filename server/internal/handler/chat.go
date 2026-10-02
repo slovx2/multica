@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/multica-ai/multica/server/pkg/planning"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -32,6 +33,7 @@ const chatSessionTitleMaxLen = 200
 // ---------------------------------------------------------------------------
 
 type CreateChatSessionRequest struct {
+	PlanMode  bool    `json:"plan_mode"`
 	AgentID   string  `json:"agent_id"`
 	Title     string  `json:"title"`
 	ProjectID *string `json:"project_id"`
@@ -91,6 +93,10 @@ func (h *Handler) CreateChatSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.validateChatPlanMode(w, r, agent.ID, req.PlanMode) {
+		return
+	}
+
 	// Create inside a tx that first takes a FOR KEY SHARE lock on the workspace
 	// row: it conflicts with DeleteWorkspace's FOR UPDATE, so a session cannot be
 	// created into a workspace whose delete is in progress and then be orphaned by
@@ -137,6 +143,13 @@ func (h *Handler) CreateChatSession(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create chat session")
 		return
+	}
+	if req.PlanMode {
+		session, err = qtx.UpdateChatPlanMode(r.Context(), db.UpdateChatPlanModeParams{ID: session.ID, WorkspaceID: session.WorkspaceID, PlanMode: true})
+		if err != nil {
+			writeError(w, 500, "failed to save plan mode")
+			return
+		}
 	}
 	session, err = qtx.MarkChatSessionExplicitlyCreated(r.Context(), session.ID)
 	if err != nil {
@@ -201,6 +214,7 @@ func (h *Handler) ListChatSessions(w http.ResponseWriter, r *http.Request) {
 				AgentID:     uuidToString(s.AgentID),
 				CreatorID:   uuidToString(s.CreatorID),
 				ProjectID:   uuidToPtr(s.ProjectID),
+				PlanMode:    s.PlanMode,
 				Title:       s.Title,
 				Status:      s.Status,
 				HasUnread:   s.UnreadCount > 0,
@@ -231,6 +245,7 @@ func (h *Handler) ListChatSessions(w http.ResponseWriter, r *http.Request) {
 				AgentID:     uuidToString(s.AgentID),
 				CreatorID:   uuidToString(s.CreatorID),
 				ProjectID:   uuidToPtr(s.ProjectID),
+				PlanMode:    s.PlanMode,
 				Title:       s.Title,
 				Status:      s.Status,
 				HasUnread:   s.UnreadCount > 0,
@@ -343,6 +358,7 @@ func (h *Handler) GetChatSession(w http.ResponseWriter, r *http.Request) {
 }
 
 type UpdateChatSessionRequest struct {
+	PlanMode  *bool           `json:"plan_mode"`
 	Title     *string         `json:"title"`
 	ProjectID json.RawMessage `json:"project_id"`
 }
@@ -367,8 +383,18 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 	}
 	hasTitle := req.Title != nil
 	hasProjectID := req.ProjectID != nil
-	if hasTitle == hasProjectID {
-		writeError(w, http.StatusBadRequest, "exactly one of title or project_id is required")
+	fields := 0
+	if hasTitle {
+		fields++
+	}
+	if hasProjectID {
+		fields++
+	}
+	if req.PlanMode != nil {
+		fields++
+	}
+	if fields != 1 {
+		writeError(w, http.StatusBadRequest, "exactly one of title, project_id or plan_mode is required")
 		return
 	}
 
@@ -382,7 +408,12 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 		err     error
 	)
 	var projectIDChanged bool
-	if hasTitle {
+	if req.PlanMode != nil {
+		if !h.validateChatPlanMode(w, r, session.AgentID, *req.PlanMode) {
+			return
+		}
+		updated, err = h.Queries.UpdateChatPlanMode(r.Context(), db.UpdateChatPlanModeParams{ID: session.ID, WorkspaceID: session.WorkspaceID, PlanMode: *req.PlanMode})
+	} else if hasTitle {
 		title := strings.TrimSpace(*req.Title)
 		if title == "" {
 			writeError(w, http.StatusBadRequest, "title is required")
@@ -454,6 +485,7 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 
 	resolvedSessionID := uuidToString(updated.ID)
 	payload := protocol.ChatSessionUpdatedPayload{
+		PlanMode:      req.PlanMode,
 		ChatSessionID: resolvedSessionID,
 		Title:         updated.Title,
 		UpdatedAt:     timestampToString(updated.UpdatedAt),
@@ -759,6 +791,10 @@ func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := qtx.DeleteChatPlanningData(r.Context(), db.DeleteChatPlanningDataParams{ChatSessionID: session.ID, WorkspaceID: session.WorkspaceID}); err != nil {
+		writeError(w, 500, "failed to delete planning data")
+		return
+	}
 	if err := qtx.DeleteChatSession(r.Context(), db.DeleteChatSessionParams{
 		ID:          session.ID,
 		WorkspaceID: session.WorkspaceID,
@@ -802,8 +838,9 @@ func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type SendChatMessageRequest struct {
-	Content       string   `json:"content"`
-	AttachmentIDs []string `json:"attachment_ids"`
+	CardDecision  *planning.Decision `json:"card_decision,omitempty"`
+	Content       string             `json:"content"`
+	AttachmentIDs []string           `json:"attachment_ids"`
 }
 
 type SendChatMessageResponse struct {
@@ -842,7 +879,7 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Content == "" {
+	if req.Content == "" && req.CardDecision == nil {
 		writeError(w, http.StatusBadRequest, "content is required")
 		return
 	}
@@ -942,9 +979,13 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 	// creator-only), so they are the task initiator and the run's originator —
 	// surfaced to the agent under `## On Behalf Of`. actorType/actorID were
 	// resolved above for the invoke gate.
-	sent, err := h.TaskService.SendDirectChatMessage(r.Context(), session, agent, parseUUID(userID), req.Content, attachmentIDs, actorType, parseUUID(actorID))
+	sent, err := h.TaskService.SendDirectChatMessage(r.Context(), session, agent, parseUUID(userID), req.Content, attachmentIDs, actorType, parseUUID(actorID), req.CardDecision)
 	if err != nil {
 		switch {
+		case errors.Is(err, service.ErrChatCardDecision):
+			writeError(w, http.StatusConflict, err.Error())
+		case errors.Is(err, service.ErrPlanModeUnsupported):
+			writeError(w, http.StatusBadRequest, err.Error())
 		case errors.Is(err, service.ErrChatSessionArchived):
 			writeError(w, http.StatusConflict, "chat session is archived")
 		case errors.Is(err, service.ErrChatTaskAgentArchived):
@@ -956,6 +997,12 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	if req.CardDecision != nil {
+		if updated, e := h.Queries.GetChatSession(r.Context(), session.ID); e == nil {
+			h.publishChat(protocol.EventChatSessionUpdated, workspaceID, "member", userID, sessionID, protocol.ChatSessionUpdatedPayload{ChatSessionID: sessionID, Title: updated.Title, PlanMode: &updated.PlanMode, UpdatedAt: timestampToString(updated.UpdatedAt)})
+		}
+	}
+
 	msg := sent.Message
 	task := sent.Task
 	currentTitle := session.Title
@@ -1908,6 +1955,7 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type ChatSessionResponse struct {
+	PlanMode    bool    `json:"plan_mode"`
 	ID          string  `json:"id"`
 	WorkspaceID string  `json:"workspace_id"`
 	AgentID     string  `json:"agent_id"`
@@ -2030,6 +2078,7 @@ func chatSessionToResponse(s db.ChatSession) ChatSessionResponse {
 		AgentID:     uuidToString(s.AgentID),
 		CreatorID:   uuidToString(s.CreatorID),
 		ProjectID:   uuidToPtr(s.ProjectID),
+		PlanMode:    s.PlanMode,
 		Title:       s.Title,
 		Status:      s.Status,
 		Pinned:      s.PinnedAt.Valid,

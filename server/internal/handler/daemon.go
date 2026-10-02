@@ -33,6 +33,7 @@ import (
 	"github.com/multica-ai/multica/server/pkg/agent"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/dbid"
+	"github.com/multica-ai/multica/server/pkg/planning"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 	"github.com/multica-ai/multica/server/pkg/redact"
 	"github.com/multica-ai/multica/server/pkg/skillbundle"
@@ -3060,6 +3061,16 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 			return resp, deliveredCommentIDs, issueSnapshot, agentSkillCount, builtinSkillCount, failure
 		}
 		resp.ChatSessionID = uuidToString(cs.ID)
+		resp.PlanMode = cs.PlanMode
+		var planningContext struct {
+			PlanMode *bool `json:"plan_mode"`
+		}
+		if json.Unmarshal(task.Context, &planningContext) == nil && planningContext.PlanMode != nil {
+			resp.PlanMode = *planningContext.PlanMode
+		}
+		if resp.PlanMode && !planning.Supported(runtime.Provider) {
+			return resp, deliveredCommentIDs, issueSnapshot, agentSkillCount, builtinSkillCount, h.failClaimedTaskBeforeLaunch(r.Context(), task, "plan mode is supported only by Claude and Codex", taskfailure.ReasonAgentMissingConfig, "unsupported_plan_mode", http.StatusBadRequest, "plan mode is supported only by Claude and Codex")
+		}
 		resp.ThreadName = cs.Title
 		// Legacy compatibility: agent creation no longer creates intro chats,
 		// but historical is_agent_intro sessions can still be resumed. Such a
@@ -3142,7 +3153,9 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 		// signed + 30-min expiring on the CDN).
 		var unanswered []db.ChatMessage
 		var inputLoadErr error
-		if task.ChatInputTaskID.Valid {
+		if task.IssueID.Valid {
+			// Planning mentions carry their input in the issue comment context.
+		} else if task.ChatInputTaskID.Valid {
 			unanswered, inputLoadErr = h.Queries.ListChatInputMessages(r.Context(), task.ChatInputTaskID)
 		} else if msgs, err := h.Queries.ListChatMessagesForLegacyTask(r.Context(), cs.ID); err == nil {
 			unanswered = trailingUserMessages(msgs)
@@ -3574,6 +3587,20 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 				Description: entry.Description,
 			})
 		}
+	}
+
+	if !task.ChatSessionID.Valid {
+		filtered := resp.ProjectResources[:0]
+		for _, resource := range resp.ProjectResources {
+			if resource.ResourceType == "local_directory" {
+				var ref localDirectoryRef
+				if json.Unmarshal(resource.ResourceRef, &ref) == nil && ref.Scope == "chat" {
+					continue
+				}
+			}
+			filtered = append(filtered, resource)
+		}
+		resp.ProjectResources = filtered
 	}
 
 	// Last gate before dispatch: refuse to hand a worktree-mode local_directory

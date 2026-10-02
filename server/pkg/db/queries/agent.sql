@@ -320,7 +320,7 @@ INSERT INTO agent_task_queue (
     coalesced_comment_ids, trigger_summary, force_fresh_session, is_leader_task, handoff_note,
     squad_id, context, originator_user_id, accountable_user_id, runtime_mcp_overlay, runtime_connected_apps,
     originator_source, delegated_from_task_id, rule_version_id, rerun_of_task_id, trigger_evidence_kind, trigger_evidence_ref_id,
-    id
+    id, chat_session_id
 )
 SELECT
     $1, $2, $3, 'queued', $4, sqlc.narg(trigger_comment_id),
@@ -330,11 +330,14 @@ SELECT
     COALESCE(sqlc.narg('is_leader_task')::boolean, FALSE),
     sqlc.narg(handoff_note),
     sqlc.narg(squad_id),
-    CASE
+    CASE WHEN sqlc.narg('planning_chat_session_id')::uuid IS NOT NULL THEN
+        (SELECT jsonb_build_object('plan_mode', cs.plan_mode) FROM chat_session cs WHERE cs.id = sqlc.narg('planning_chat_session_id')::uuid)
+        || jsonb_strip_nulls(jsonb_build_object('head_sha', NULLIF(sqlc.narg('head_sha')::text, '')))
+    ELSE CASE
         WHEN COALESCE(sqlc.narg('head_sha')::text, '') <> ''
         THEN jsonb_build_object('head_sha', sqlc.narg('head_sha')::text)
         ELSE NULL
-    END,
+    END END,
     sqlc.narg(originator_user_id),
     sqlc.narg(accountable_user_id),
     sqlc.narg(runtime_mcp_overlay),
@@ -345,7 +348,7 @@ SELECT
     sqlc.narg(rerun_of_task_id),
     sqlc.narg(trigger_evidence_kind),
     sqlc.narg(trigger_evidence_ref_id),
-    COALESCE(sqlc.narg('id')::uuid, gen_random_uuid())
+    COALESCE(sqlc.narg('id')::uuid, gen_random_uuid()), sqlc.narg('planning_chat_session_id')::uuid
 WHERE lock_task_owner_rows($1, $3, $2)
 RETURNING *;
 
@@ -1925,7 +1928,11 @@ WHERE context->>'wakeup_id' IS NULL AND issue_id = @issue_id
 -- case — a dispatched sibling would trip the unique index — it defers to
 -- completion reconciliation unless no active task exists at all.
 UPDATE agent_task_queue
-SET coalesced_comment_ids = (
+SET chat_session_id = COALESCE(sqlc.narg('planning_chat_session_id')::uuid, chat_session_id),
+    context = CASE WHEN sqlc.narg('planning_chat_session_id')::uuid IS NOT NULL THEN
+        COALESCE(context, '{}'::jsonb) || (SELECT jsonb_build_object('plan_mode', cs.plan_mode) FROM chat_session cs WHERE cs.id = sqlc.narg('planning_chat_session_id')::uuid)
+        ELSE context END,
+    coalesced_comment_ids = (
         SELECT COALESCE(array_agg(DISTINCT e), '{}')
         FROM unnest(array_append(coalesced_comment_ids, trigger_comment_id)) AS e
         WHERE e IS NOT NULL AND e <> @new_trigger_comment_id::uuid

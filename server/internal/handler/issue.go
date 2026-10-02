@@ -261,7 +261,7 @@ func assertIssueStatusStillActive(ctx context.Context, qtx *db.Queries, workspac
 // wakeup actor identity in transaction-local settings, including built-in targets.
 func (h *Handler) runWithIssueStatusGuard(ctx context.Context, workspaceID pgtype.UUID, statusKey string, fn func(q *db.Queries) error) error {
 	_, hasActor := ctx.Value(wakeupActorKey{}).(wakeupActor)
-	if !hasActor && (statusKey == "" || issuestatus.IsBuiltIn(statusKey)) {
+	if !hasActor && !service.HasPlanningChat(ctx) && (statusKey == "" || issuestatus.IsBuiltIn(statusKey)) {
 		return fn(h.Queries)
 	}
 	tx, err := h.beginWakeupWrite(ctx)
@@ -292,6 +292,9 @@ func (h *Handler) updateIssueWithStatusGuard(ctx context.Context, workspaceID pg
 		}
 		var innerErr error
 		issue, cancelledWakeups, innerErr = updateIssueStoppingWakeups(ctx, q, params)
+		if innerErr == nil {
+			innerErr = service.LinkPlanningContext(ctx, q, issue)
+		}
 		return innerErr
 	})
 	if err != nil {
@@ -3024,18 +3027,20 @@ func readRuntimeCLIVersion(metadata []byte) string {
 }
 
 type CreateIssueRequest struct {
-	Title         string   `json:"title"`
-	Description   *string  `json:"description"`
-	Status        string   `json:"status"`
-	Priority      string   `json:"priority"`
-	AssigneeType  *string  `json:"assignee_type"`
-	AssigneeID    *string  `json:"assignee_id"`
-	ParentIssueID *string  `json:"parent_issue_id"`
-	ProjectID     *string  `json:"project_id"`
-	Stage         *int32   `json:"stage,omitempty"`
-	StartDate     *string  `json:"start_date"`
-	DueDate       *string  `json:"due_date"`
-	AttachmentIDs []string `json:"attachment_ids,omitempty"`
+	PlanningChatSessionID string   `json:"planning_chat_session_id,omitempty"`
+	UnlinkPlanningChat    bool     `json:"unlink_planning_chat,omitempty"`
+	Title                 string   `json:"title"`
+	Description           *string  `json:"description"`
+	Status                string   `json:"status"`
+	Priority              string   `json:"priority"`
+	AssigneeType          *string  `json:"assignee_type"`
+	AssigneeID            *string  `json:"assignee_id"`
+	ParentIssueID         *string  `json:"parent_issue_id"`
+	ProjectID             *string  `json:"project_id"`
+	Stage                 *int32   `json:"stage,omitempty"`
+	StartDate             *string  `json:"start_date"`
+	DueDate               *string  `json:"due_date"`
+	AttachmentIDs         []string `json:"attachment_ids,omitempty"`
 	// LabelIDs are issue-scoped labels to attach to the new issue in the same
 	// transaction as the create. Unknown or non-issue ids are rejected with
 	// 400 (service.ErrIssueLabelNotFound) rather than silently dropped.
@@ -3199,6 +3204,11 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 
 	// Get creator from context (set by auth middleware)
 	creatorID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	r, ok = h.planningRequest(w, r, creatorID, workspaceID, req.PlanningChatSessionID, req.UnlinkPlanningChat)
 	if !ok {
 		return
 	}
@@ -3497,8 +3507,10 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 }
 
 type UpdateIssueRequest struct {
-	ExpectedRevision *int64  `json:"expected_revision,omitempty"`
-	Title            *string `json:"title"`
+	PlanningChatSessionID string  `json:"planning_chat_session_id,omitempty"`
+	UnlinkPlanningChat    bool    `json:"unlink_planning_chat,omitempty"`
+	ExpectedRevision      *int64  `json:"expected_revision,omitempty"`
+	Title                 *string `json:"title"`
 	// TitleBase is the title adopted by the editor before producing Title. It
 	// protects title edits without coupling them to unrelated issue mutations.
 	TitleBase   *string `json:"title_base,omitempty"`
@@ -3721,6 +3733,10 @@ func (h *Handler) updateIssueAtomically(ctx context.Context, workspaceID pgtype.
 			}
 		}
 	}
+	if err := service.LinkPlanningContext(ctx, qtx, issue); err != nil {
+		return db.Issue{}, current, false, err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return db.Issue{}, current, false, fmt.Errorf("commit atomic issue update: %w", err)
 	}
@@ -3748,6 +3764,11 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	var req UpdateIssueRequest
 	if err := json.Unmarshal(bodyBytes, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	r, ok = h.planningRequest(w, r, userID, workspaceID, req.PlanningChatSessionID, req.UnlinkPlanningChat)
+	if !ok {
 		return
 	}
 
@@ -4434,6 +4455,9 @@ func (h *Handler) deleteIssuesAndCollectAttachmentURLs(ctx context.Context, issu
 			}
 		} else if !errors.Is(contextErr, pgx.ErrNoRows) {
 			return issueDeleteResult{}, fmt.Errorf("load issue source context for delete: %w", contextErr)
+		}
+		if err := qtx.DeleteIssuePlanningLinks(ctx, db.DeleteIssuePlanningLinksParams{IssueID: issue.ID, WorkspaceID: issue.WorkspaceID}); err != nil {
+			return issueDeleteResult{}, fmt.Errorf("delete planning links: %w", err)
 		}
 		if err := qtx.DeleteIssue(ctx, db.DeleteIssueParams{ID: issue.ID, WorkspaceID: issue.WorkspaceID}); err != nil {
 			return issueDeleteResult{}, fmt.Errorf("delete issue: %w", err)

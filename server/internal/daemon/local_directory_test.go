@@ -1213,3 +1213,18 @@ func TestIssueTasksStillSerialiseOnPathMutex(t *testing.T) {
 	}
 	release()
 }
+
+func TestChatOnlyLocalDirectoryScope(t *testing.T) {
+	dir := t.TempDir()
+	raw, _ := json.Marshal(localDirectoryRef{LocalPath: dir, DaemonID: "d", Scope: "chat"})
+	task := Task{ProjectResources: []ProjectResourceData{{ResourceType: "local_directory", ResourceRef: raw}}}
+	assignment, err := localDirectoryAssignmentForTask(task, "d")
+	if err != nil || assignment != nil {
+		t.Fatalf("issue used chat directory: %+v %v", assignment, err)
+	}
+	task.ChatSessionID = "chat"
+	assignment, err = localDirectoryAssignmentForTask(task, "d")
+	if err != nil || assignment == nil {
+		t.Fatalf("chat missed directory: %+v %v", assignment, err)
+	}
+}

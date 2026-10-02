@@ -1,5 +1,7 @@
 "use client";
 
+import { ChatPlanMode } from "./chat-plan-mode";
+
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { TriangleAlert } from "lucide-react";
@@ -123,6 +125,8 @@ interface ChatInputProps {
   /** Chat @ suggestions: current/recent issue/project entries. */
   contextItems?: MentionItem[];
   /** Optional project context for the draft or current chat session. */
+  runtimeId?: string;
+  sessionId?: string | null;
   projects?: Project[];
   projectId?: string | null;
   onProjectChange?: (projectId: string | null) => void;
@@ -164,6 +168,8 @@ export function ChatInput({
   agentName,
   leftAdornment,
   contextItems,
+  runtimeId,
+  sessionId,
   projects = [],
   projectId,
   onProjectChange,
@@ -650,7 +656,7 @@ export function ChatInput({
         )}
         aria-disabled={noAgent || undefined}
       >
-        {selectedProject && (
+        {onProjectChange && (
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 pt-2">
             <div
               className={cn(
@@ -659,7 +665,7 @@ export function ChatInput({
               )}
             >
               <ProjectPicker
-                projectId={selectedProject.id}
+                projectId={selectedProject?.id ?? null}
                 onUpdate={(updates) => onProjectChange?.(updates.project_id ?? null)}
                 disabled={!projectSelectionEnabled}
                 triggerRender={
@@ -682,6 +688,7 @@ export function ChatInput({
             )}
           </div>
         )}
+        {sessionId !== undefined && <div className="px-3 pt-2"><ChatPlanMode runtimeId={runtimeId} sessionId={sessionId} disabled={disabled || noAgent || isRunning} /></div>}
         <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
           <ContentEditor
             // See the editorKey / draftKey split note above — editor identity
@@ -724,7 +731,7 @@ export function ChatInput({
                   : undefined}
                 projects={projects}
                 projectId={projectId}
-                onSelectProject={projectSelectionEnabled ? onProjectChange : undefined}
+                onSelectProject={undefined}
                 projectContextUnsupported={projectContextUnsupported}
               />
             )}

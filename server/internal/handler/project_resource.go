@@ -142,6 +142,7 @@ const (
 // keeps the historical one-task-at-a-time behavior, worktree gives each task an
 // isolated git worktree so tasks run concurrently.
 type localDirectoryRef struct {
+	Scope         string `json:"scope,omitempty"`
 	LocalPath     string `json:"local_path"`
 	DaemonID      string `json:"daemon_id"`
 	Label         string `json:"label,omitempty"`
@@ -275,6 +276,9 @@ func validateLocalDirectoryRef(ref json.RawMessage) (json.RawMessage, error) {
 	var payload localDirectoryRef
 	if err := json.Unmarshal(ref, &payload); err != nil {
 		return nil, fmt.Errorf("invalid local_directory payload: %w", err)
+	}
+	if payload.Scope != "" && payload.Scope != "all" && payload.Scope != "chat" {
+		return nil, errors.New("local_directory: scope must be all or chat")
 	}
 	payload.LocalPath = strings.TrimSpace(payload.LocalPath)
 	if payload.LocalPath == "" {

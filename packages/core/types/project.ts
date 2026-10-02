@@ -96,6 +96,7 @@ export interface LocalDirectoryResourceRef {
   local_path: string;
   daemon_id: string;
   label?: string;
+  scope?: "all" | "chat";
   execution_mode?: LocalDirectoryExecutionMode;
 }
 

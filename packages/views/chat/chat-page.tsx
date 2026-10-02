@@ -1,5 +1,7 @@
 "use client";
 
+import { ChatCards } from "./components/chat-cards";
+
 import { useEffect, useRef, useState } from "react";
 import { useDefaultLayout } from "react-resizable-panels";
 import { ArrowLeft, MessageSquare } from "lucide-react";
@@ -328,7 +330,10 @@ export function ChatPage() {
         onClear={c.handleClearQueuedTasks}
       />
 
+      <ChatCards sessionId={c.activeSessionId ?? null} disabled={c.isAgentAccessRevoked || c.isAgentArchived} />
       <ChatInput
+        runtimeId={c.activeAgent?.runtime_id}
+        sessionId={c.activeSessionId ?? null}
         onSend={c.handleSend}
         restoreDraftRequest={c.restoreDraftRequest}
         conversationStarterRequest={c.conversationStarterRequest}

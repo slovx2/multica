@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS chat_card_id_idx;

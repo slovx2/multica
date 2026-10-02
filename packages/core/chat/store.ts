@@ -301,6 +301,8 @@ export interface PendingSendRestore {
 }
 
 export interface ChatState {
+  draftPlanMode: boolean;
+  setDraftPlanMode: (enabled: boolean) => void;
   isOpen: boolean;
   /** Settings preference: is the floating chat window available at all. */
   floatingChatEnabled: boolean;
@@ -389,6 +391,8 @@ export function createChatStore(options: ChatStoreOptions) {
   );
 
   const store = create<ChatState>((set, get) => ({
+    draftPlanMode: false,
+    setDraftPlanMode: (draftPlanMode) => set({ draftPlanMode }),
     isOpen: initialIsOpen,
     floatingChatEnabled: initialFloatingEnabled,
     activeSessionId: storage.getItem(wsKey(SESSION_STORAGE_KEY)),
@@ -427,7 +431,7 @@ export function createChatStore(options: ChatStoreOptions) {
       } else {
         storage.removeItem(wsKey(SESSION_STORAGE_KEY));
       }
-      set({ activeSessionId: id });
+      set({ activeSessionId: id, draftPlanMode: false });
     },
     setSelectedAgentId: (id) => {
       logger.info("setSelectedAgentId", { from: get().selectedAgentId, to: id });
@@ -672,6 +676,7 @@ export function createChatStore(options: ChatStoreOptions) {
     });
     store.setState({
       activeSessionId: nextSession,
+    draftPlanMode: false,
       selectedAgentId: nextAgent,
       selectedProjectId: nextProject,
       inputDrafts: nextDrafts,

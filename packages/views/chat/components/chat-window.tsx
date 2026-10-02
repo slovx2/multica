@@ -1,5 +1,7 @@
 "use client";
 
+import { ChatCards } from "./chat-cards";
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
@@ -405,6 +407,7 @@ export function ChatWindow() {
             agent_id: activeAgent.id,
             title: titleSeed.slice(0, 50),
             project_id: activeProjectId,
+            plan_mode: useChatStore.getState().draftPlanMode,
           });
           return session.id;
         } finally {
@@ -996,7 +999,10 @@ export function ChatWindow() {
       {/* Input — disabled for legacy archived sessions and for sessions whose
        *  agent has been archived (read-only); locked out entirely when there's
        *  no agent (the EmptyState above carries the CTA). */}
+      <ChatCards sessionId={activeSessionId ?? null} disabled={isAgentAccessRevoked || isAgentArchived} />
       <ChatInput
+        runtimeId={activeAgent?.runtime_id}
+        sessionId={activeSessionId ?? null}
         onSend={handleSend}
         restoreDraftRequest={restoreDraftRequest}
         conversationStarterRequest={conversationStarterRequest}

@@ -33,6 +33,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/selfexec"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/pkg/agent"
+	"github.com/multica-ai/multica/server/pkg/planning"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 	"github.com/multica-ai/multica/server/pkg/redact"
 	"github.com/multica-ai/multica/server/pkg/skillbundle"
@@ -8666,7 +8667,11 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	if provider == "opencode" || provider == "codearts" {
 		idleWatchdogTimeout = d.cfg.OpenCodeIdleWatchdog
 	}
+	if task.PlanMode && !planning.Supported(provider) {
+		return TaskResult{}, fmt.Errorf("plan mode is supported only by Claude and Codex")
+	}
 	execOpts := agent.ExecOptions{
+		PlanMode:                   task.PlanMode,
 		EnableTaskSupplement:       taskSupplementNegotiated,
 		Cwd:                        env.WorkDir,
 		Model:                      model,
@@ -8700,6 +8705,11 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		OpenclawMode:           openclawMode,
 		ClaudeSettingsPath:     env.ClaudeSettingsPath,
 		QwenpawWorkspace:       env.QwenpawWorkspace,
+	}
+	if task.ChatSessionID != "" {
+		execOpts.PersistCard = func(ctx context.Context, card planning.Card) error {
+			return d.client.postJSONWithRetry(ctx, fmt.Sprintf("/api/daemon/tasks/%s/cards", task.ID), card, nil, defaultTerminalRetrySchedule)
+		}
 	}
 	// Some providers do not reliably load the per-task runtime config files we
 	// write into the task workdir:

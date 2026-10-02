@@ -499,6 +499,9 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 		}
 	}
 
+	if err := LinkPlanningContext(ctx, qtx, issue); err != nil {
+		return IssueCreateResult{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return IssueCreateResult{}, fmt.Errorf("commit: %w", err)
 	}

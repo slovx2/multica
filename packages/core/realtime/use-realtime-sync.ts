@@ -343,6 +343,7 @@ export async function applyChatQuickActionsToCache(
 }
 
 type ChatSessionUpdatedPayload = {
+  plan_mode?: boolean;
   chat_session_id: string;
   title?: string;
   project_id?: string | null;
@@ -373,6 +374,9 @@ export function applyChatSessionUpdatedToCache(
   wsId: string,
   payload: ChatSessionUpdatedPayload,
 ): void {
+  if (payload.plan_mode !== undefined) {
+    void qc.invalidateQueries({ queryKey: chatKeys.session(wsId, payload.chat_session_id) });
+  }
   qc.setQueryData<ChatSession[]>(chatKeys.sessions(wsId), (old) => {
     if (!old) return old;
     const next = old.map((s) =>
@@ -380,6 +384,7 @@ export function applyChatSessionUpdatedToCache(
         ? {
             ...s,
             title: payload.title ?? s.title,
+            plan_mode: payload.plan_mode ?? s.plan_mode,
             ...("project_id" in payload ? { project_id: payload.project_id } : {}),
             pinned: payload.pinned ?? s.pinned,
             status: payload.status ?? s.status,

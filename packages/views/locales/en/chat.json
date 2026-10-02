@@ -249,5 +249,21 @@
     "archive": "Archive chat",
     "unarchive": "Unarchive chat",
     "delete": "Delete chat"
+  },
+  "planning": {
+    "mode": "Plan mode",
+    "pending": "Pending",
+    "approved": "Approved",
+    "rejected": "Rejected",
+    "superseded": "Superseded",
+    "answered": "Answered",
+    "feedback": "Feedback",
+    "approve": "Approve, create/update issues",
+    "reject": "Reject",
+    "free_text": "Your answer",
+    "answer": "Send answers",
+    "links": "Planning chats",
+    "issues": "Issues from this chat",
+    "unsupported": "Plan mode is supported only by Claude and Codex."
   }
 }

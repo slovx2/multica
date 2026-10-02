@@ -1,5 +1,7 @@
 "use client";
 
+import { PlanningLinks } from "../../chat/components/planning-links";
+
 import {
   issueBehavesAs,
   issueBehavesAsAny,
@@ -2866,6 +2868,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           member. It is NOT filtered by invoke permission: a member can see and
           click an action they cannot run, and the refusal is explained at run
           time rather than by a silently shorter list. */}
+      <PlanningLinks issueId={issue.id} />
       <QuickActionsSection issueId={issue.id} />
       <WakeupsSection
         issueId={issue.id}
