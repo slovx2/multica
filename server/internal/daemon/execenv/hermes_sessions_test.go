@@ -43,6 +43,9 @@ func TestHermesSessionStorePathScoping(t *testing.T) {
 	}
 
 	chat := HermesSessionStorePath("", agent, "", TaskContextForEnv{ChatSessionID: "sess-1"})
+	if HermesSessionStorePath("", agent, "", TaskContextForEnv{ChatSessionID: "sess-1", IssueID: "issue-a"}) != chat {
+		t.Fatal("mixed task lost chat store")
+	}
 	if filepath.Base(chat) != "chat_sess-1" {
 		t.Fatalf("chat conversation segment = %q, want chat_sess-1", filepath.Base(chat))
 	}

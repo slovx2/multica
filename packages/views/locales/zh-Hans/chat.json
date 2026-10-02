@@ -245,5 +245,21 @@
     "delete": "删除会话",
     "archive": "归档会话",
     "unarchive": "取消归档"
+  },
+  "planning": {
+    "mode": "计划模式",
+    "pending": "待定",
+    "approved": "已同意",
+    "rejected": "已驳回",
+    "superseded": "已被新计划取代",
+    "answered": "已回答",
+    "feedback": "修改意见",
+    "approve": "同意，创建/更新任务",
+    "reject": "不同意",
+    "free_text": "自由输入",
+    "answer": "发送回答",
+    "links": "规划对话",
+    "issues": "此对话创建的任务",
+    "unsupported": "计划模式仅支持 Claude 和 Codex。"
   }
 }

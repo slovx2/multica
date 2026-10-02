@@ -249,5 +249,21 @@
     "archive": "Archiver la discussion",
     "unarchive": "Désarchiver la discussion",
     "delete": "Supprimer la discussion"
+  },
+  "planning": {
+    "mode": "Mode plan",
+    "pending": "En attente",
+    "approved": "Approuvé",
+    "rejected": "Refusé",
+    "superseded": "Remplacé",
+    "answered": "Répondu",
+    "feedback": "Commentaires",
+    "approve": "Approuver et créer/modifier les tâches",
+    "reject": "Refuser",
+    "free_text": "Votre réponse",
+    "answer": "Envoyer les réponses",
+    "links": "Chats de planification",
+    "issues": "Tâches de ce chat",
+    "unsupported": "Le mode plan est disponible uniquement avec Claude et Codex."
   }
 }

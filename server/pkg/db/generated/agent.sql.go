@@ -1207,6 +1207,7 @@ SET status = 'cancelled', completed_at = now(), prepare_lease_expires_at = NULL,
     cancelled_by_name = $3
 WHERE id = $4
   AND chat_session_id = $5
+  AND issue_id IS NULL
   AND status = 'queued'
 RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, wait_reason, initiator_user_id, handoff_note, prepare_lease_expires_at, squad_id, runtime_mcp_overlay, escalation_for_task_id, fire_at, originator_user_id, runtime_connected_apps, coalesced_comment_ids, delivered_comment_ids, chat_input_task_id, chat_finalize_deferred_at, originator_source, delegated_from_task_id, retry_of_task_id, rerun_of_task_id, rule_version_id, trigger_evidence_kind, trigger_evidence_ref_id, accountable_user_id, session_rollout_missing, retired_session_id, quick_actions_disabled, regenerate_quick_actions_for, branch_name, durable_work_dir, channel_context_revision, comment_thread_id, cancelled_by_type, cancelled_by_id, cancelled_by_name, issue_snapshot
 `
@@ -1316,6 +1317,7 @@ UPDATE agent_task_queue AS queued
 SET status = 'cancelled', completed_at = now(), prepare_lease_expires_at = NULL,
     cancelled_by_type = 'system', cancelled_by_id = NULL, cancelled_by_name = NULL
 WHERE queued.chat_session_id = $1
+  AND queued.issue_id IS NULL
   AND queued.status = 'queued'
   AND queued.id IS DISTINCT FROM (SELECT id FROM head)
 RETURNING queued.id, queued.agent_id, queued.issue_id, queued.status, queued.priority, queued.dispatched_at, queued.started_at, queued.completed_at, queued.result, queued.error, queued.created_at, queued.context, queued.runtime_id, queued.session_id, queued.work_dir, queued.trigger_comment_id, queued.chat_session_id, queued.autopilot_run_id, queued.attempt, queued.max_attempts, queued.parent_task_id, queued.failure_reason, queued.trigger_summary, queued.force_fresh_session, queued.is_leader_task, queued.wait_reason, queued.initiator_user_id, queued.handoff_note, queued.prepare_lease_expires_at, queued.squad_id, queued.runtime_mcp_overlay, queued.escalation_for_task_id, queued.fire_at, queued.originator_user_id, queued.runtime_connected_apps, queued.coalesced_comment_ids, queued.delivered_comment_ids, queued.chat_input_task_id, queued.chat_finalize_deferred_at, queued.originator_source, queued.delegated_from_task_id, queued.retry_of_task_id, queued.rerun_of_task_id, queued.rule_version_id, queued.trigger_evidence_kind, queued.trigger_evidence_ref_id, queued.accountable_user_id, queued.session_rollout_missing, queued.retired_session_id, queued.quick_actions_disabled, queued.regenerate_quick_actions_for, queued.branch_name, queued.durable_work_dir, queued.channel_context_revision, queued.comment_thread_id, queued.cancelled_by_type, queued.cancelled_by_id, queued.cancelled_by_name, queued.issue_snapshot
@@ -2253,7 +2255,7 @@ INSERT INTO agent_task_queue (
     coalesced_comment_ids, trigger_summary, force_fresh_session, is_leader_task, handoff_note,
     squad_id, context, originator_user_id, accountable_user_id, runtime_mcp_overlay, runtime_connected_apps,
     originator_source, delegated_from_task_id, rule_version_id, rerun_of_task_id, trigger_evidence_kind, trigger_evidence_ref_id,
-    id
+    id, chat_session_id
 )
 SELECT
     $1, $2, $3, 'queued', $4, $5,
@@ -2263,12 +2265,14 @@ SELECT
     COALESCE($9::boolean, FALSE),
     $10,
     $11,
-    CASE
-        WHEN COALESCE($12::text, '') <> ''
-        THEN jsonb_build_object('head_sha', $12::text)
+    CASE WHEN $12::uuid IS NOT NULL THEN
+        (SELECT jsonb_build_object('plan_mode', cs.plan_mode) FROM chat_session cs WHERE cs.id = $12::uuid)
+        || jsonb_strip_nulls(jsonb_build_object('head_sha', NULLIF($13::text, '')))
+    ELSE CASE
+        WHEN COALESCE($13::text, '') <> ''
+        THEN jsonb_build_object('head_sha', $13::text)
         ELSE NULL
-    END,
-    $13,
+    END END,
     $14,
     $15,
     $16,
@@ -2278,35 +2282,37 @@ SELECT
     $20,
     $21,
     $22,
-    COALESCE($23::uuid, gen_random_uuid())
+    $23,
+    COALESCE($24::uuid, gen_random_uuid()), $12::uuid
 WHERE lock_task_owner_rows($1, $3, $2)
 RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, wait_reason, initiator_user_id, handoff_note, prepare_lease_expires_at, squad_id, runtime_mcp_overlay, escalation_for_task_id, fire_at, originator_user_id, runtime_connected_apps, coalesced_comment_ids, delivered_comment_ids, chat_input_task_id, chat_finalize_deferred_at, originator_source, delegated_from_task_id, retry_of_task_id, rerun_of_task_id, rule_version_id, trigger_evidence_kind, trigger_evidence_ref_id, accountable_user_id, session_rollout_missing, retired_session_id, quick_actions_disabled, regenerate_quick_actions_for, branch_name, durable_work_dir, channel_context_revision, comment_thread_id, cancelled_by_type, cancelled_by_id, cancelled_by_name, issue_snapshot
 `
 
 type CreateAgentTaskParams struct {
-	AgentID              pgtype.UUID   `json:"agent_id"`
-	RuntimeID            pgtype.UUID   `json:"runtime_id"`
-	IssueID              pgtype.UUID   `json:"issue_id"`
-	Priority             int32         `json:"priority"`
-	TriggerCommentID     pgtype.UUID   `json:"trigger_comment_id"`
-	CoalescedCommentIds  []pgtype.UUID `json:"coalesced_comment_ids"`
-	TriggerSummary       pgtype.Text   `json:"trigger_summary"`
-	ForceFreshSession    pgtype.Bool   `json:"force_fresh_session"`
-	IsLeaderTask         pgtype.Bool   `json:"is_leader_task"`
-	HandoffNote          pgtype.Text   `json:"handoff_note"`
-	SquadID              pgtype.UUID   `json:"squad_id"`
-	HeadSha              pgtype.Text   `json:"head_sha"`
-	OriginatorUserID     pgtype.UUID   `json:"originator_user_id"`
-	AccountableUserID    pgtype.UUID   `json:"accountable_user_id"`
-	RuntimeMcpOverlay    []byte        `json:"runtime_mcp_overlay"`
-	RuntimeConnectedApps []byte        `json:"runtime_connected_apps"`
-	OriginatorSource     pgtype.Text   `json:"originator_source"`
-	DelegatedFromTaskID  pgtype.UUID   `json:"delegated_from_task_id"`
-	RuleVersionID        pgtype.UUID   `json:"rule_version_id"`
-	RerunOfTaskID        pgtype.UUID   `json:"rerun_of_task_id"`
-	TriggerEvidenceKind  pgtype.Text   `json:"trigger_evidence_kind"`
-	TriggerEvidenceRefID pgtype.UUID   `json:"trigger_evidence_ref_id"`
-	ID                   pgtype.UUID   `json:"id"`
+	AgentID               pgtype.UUID   `json:"agent_id"`
+	RuntimeID             pgtype.UUID   `json:"runtime_id"`
+	IssueID               pgtype.UUID   `json:"issue_id"`
+	Priority              int32         `json:"priority"`
+	TriggerCommentID      pgtype.UUID   `json:"trigger_comment_id"`
+	CoalescedCommentIds   []pgtype.UUID `json:"coalesced_comment_ids"`
+	TriggerSummary        pgtype.Text   `json:"trigger_summary"`
+	ForceFreshSession     pgtype.Bool   `json:"force_fresh_session"`
+	IsLeaderTask          pgtype.Bool   `json:"is_leader_task"`
+	HandoffNote           pgtype.Text   `json:"handoff_note"`
+	SquadID               pgtype.UUID   `json:"squad_id"`
+	PlanningChatSessionID pgtype.UUID   `json:"planning_chat_session_id"`
+	HeadSha               pgtype.Text   `json:"head_sha"`
+	OriginatorUserID      pgtype.UUID   `json:"originator_user_id"`
+	AccountableUserID     pgtype.UUID   `json:"accountable_user_id"`
+	RuntimeMcpOverlay     []byte        `json:"runtime_mcp_overlay"`
+	RuntimeConnectedApps  []byte        `json:"runtime_connected_apps"`
+	OriginatorSource      pgtype.Text   `json:"originator_source"`
+	DelegatedFromTaskID   pgtype.UUID   `json:"delegated_from_task_id"`
+	RuleVersionID         pgtype.UUID   `json:"rule_version_id"`
+	RerunOfTaskID         pgtype.UUID   `json:"rerun_of_task_id"`
+	TriggerEvidenceKind   pgtype.Text   `json:"trigger_evidence_kind"`
+	TriggerEvidenceRefID  pgtype.UUID   `json:"trigger_evidence_ref_id"`
+	ID                    pgtype.UUID   `json:"id"`
 }
 
 // Fenced against workspace teardown: lock_task_owner_rows (migration 284)
@@ -2340,6 +2346,7 @@ func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams
 		arg.IsLeaderTask,
 		arg.HandoffNote,
 		arg.SquadID,
+		arg.PlanningChatSessionID,
 		arg.HeadSha,
 		arg.OriginatorUserID,
 		arg.AccountableUserID,
@@ -4364,13 +4371,13 @@ const getLastTaskSession = `-- name: GetLastTaskSession :one
 WITH retired_sessions AS (
     SELECT DISTINCT r.retired_session_id AS session_id
     FROM agent_task_queue r
-    WHERE r.agent_id = $1 AND r.issue_id = $2
+    WHERE r.agent_id = $1 AND r.issue_id = $2 AND r.chat_session_id IS NULL
       AND COALESCE(r.context->>'type', '') <> 'triage'
       AND r.retired_session_id IS NOT NULL
 ), resume_overflow_at AS (
     SELECT MAX(COALESCE(t.completed_at, t.started_at, t.dispatched_at, t.created_at)) AS at
     FROM agent_task_queue t
-    WHERE t.agent_id = $1 AND t.issue_id = $2
+    WHERE t.agent_id = $1 AND t.issue_id = $2 AND t.chat_session_id IS NULL
       AND COALESCE(t.context->>'type', '') <> 'triage'
       AND t.status = 'failed'
       AND (
@@ -4383,7 +4390,7 @@ WITH retired_sessions AS (
         t.started_at, t.issue_snapshot,
         COALESCE(t.completed_at, t.started_at, t.dispatched_at, t.created_at) AS terminal_at
     FROM agent_task_queue t
-    WHERE t.agent_id = $1 AND t.issue_id = $2
+    WHERE t.agent_id = $1 AND t.issue_id = $2 AND t.chat_session_id IS NULL
       AND COALESCE(t.context->>'type', '') <> 'triage'
       AND t.session_id IS NOT NULL
       AND t.status IN ('completed', 'failed', 'cancelled')
@@ -4636,7 +4643,7 @@ func (q *Queries) GetLatestTaskRoleForIssueAndAgent(ctx context.Context, arg Get
 
 const getLatestTaskRolloutMissing = `-- name: GetLatestTaskRolloutMissing :one
 SELECT COALESCE(session_rollout_missing, FALSE) FROM agent_task_queue
-WHERE agent_id = $1 AND issue_id = $2
+WHERE agent_id = $1 AND issue_id = $2 AND chat_session_id IS NULL
   AND COALESCE(context->>'type', '') <> 'triage'
   AND status IN ('completed', 'failed')
   AND started_at IS NOT NULL
@@ -4851,6 +4858,19 @@ func (q *Queries) HasActiveTaskForIssueAndAgentInThread(ctx context.Context, arg
 	var has_active bool
 	err := row.Scan(&has_active)
 	return has_active, err
+}
+
+const hasPendingPlanningIssueTask = `-- name: HasPendingPlanningIssueTask :one
+SELECT EXISTS (SELECT 1 FROM agent_task_queue
+ WHERE chat_session_id = $1 AND issue_id IS NOT NULL
+ AND status IN ('queued', 'dispatched', 'running', 'waiting_local_directory', 'deferred'))
+`
+
+func (q *Queries) HasPendingPlanningIssueTask(ctx context.Context, chatSessionID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, hasPendingPlanningIssueTask, chatSessionID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const hasPendingTaskForIssue = `-- name: HasPendingTaskForIssue :one
@@ -7065,6 +7085,7 @@ WHERE id = (
     SELECT t.id FROM agent_task_queue t
     WHERE t.context->>'wakeup_id' IS NULL AND t.issue_id = $12
       AND t.agent_id = $13
+      AND t.chat_session_id IS NOT DISTINCT FROM $14::uuid
       AND t.comment_thread_id IS NOT DISTINCT FROM comment_thread_root_id($1::uuid)
       AND (
           t.status = 'queued'
@@ -7076,8 +7097,8 @@ WHERE id = (
       -- into it would give a new-HEAD comment old-HEAD review coverage. Empty/
       -- absent head_sha (no linked PR) matches any task, preserving coalescing.
       AND (
-          COALESCE($14::text, '') = ''
-          OR t.context->>'head_sha' = $14::text
+          COALESCE($15::text, '') = ''
+          OR t.context->>'head_sha' = $15::text
       )
     ORDER BY t.created_at DESC
     LIMIT 1
@@ -7099,6 +7120,7 @@ type MergeCommentIntoPendingTaskParams struct {
 	NewRuntimeConnectedApps []byte      `json:"new_runtime_connected_apps"`
 	IssueID                 pgtype.UUID `json:"issue_id"`
 	AgentID                 pgtype.UUID `json:"agent_id"`
+	PlanningChatSessionID   pgtype.UUID `json:"planning_chat_session_id"`
 	HeadSha                 pgtype.Text `json:"head_sha"`
 }
 
@@ -7164,6 +7186,7 @@ func (q *Queries) MergeCommentIntoPendingTask(ctx context.Context, arg MergeComm
 		arg.NewRuntimeConnectedApps,
 		arg.IssueID,
 		arg.AgentID,
+		arg.PlanningChatSessionID,
 		arg.HeadSha,
 	)
 	var i MergeCommentIntoPendingTaskRow

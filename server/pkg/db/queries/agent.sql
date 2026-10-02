@@ -320,7 +320,7 @@ INSERT INTO agent_task_queue (
     coalesced_comment_ids, trigger_summary, force_fresh_session, is_leader_task, handoff_note,
     squad_id, context, originator_user_id, accountable_user_id, runtime_mcp_overlay, runtime_connected_apps,
     originator_source, delegated_from_task_id, rule_version_id, rerun_of_task_id, trigger_evidence_kind, trigger_evidence_ref_id,
-    id
+    id, chat_session_id
 )
 SELECT
     $1, $2, $3, 'queued', $4, sqlc.narg(trigger_comment_id),
@@ -330,11 +330,14 @@ SELECT
     COALESCE(sqlc.narg('is_leader_task')::boolean, FALSE),
     sqlc.narg(handoff_note),
     sqlc.narg(squad_id),
-    CASE
+    CASE WHEN sqlc.narg('planning_chat_session_id')::uuid IS NOT NULL THEN
+        (SELECT jsonb_build_object('plan_mode', cs.plan_mode) FROM chat_session cs WHERE cs.id = sqlc.narg('planning_chat_session_id')::uuid)
+        || jsonb_strip_nulls(jsonb_build_object('head_sha', NULLIF(sqlc.narg('head_sha')::text, '')))
+    ELSE CASE
         WHEN COALESCE(sqlc.narg('head_sha')::text, '') <> ''
         THEN jsonb_build_object('head_sha', sqlc.narg('head_sha')::text)
         ELSE NULL
-    END,
+    END END,
     sqlc.narg(originator_user_id),
     sqlc.narg(accountable_user_id),
     sqlc.narg(runtime_mcp_overlay),
@@ -345,7 +348,7 @@ SELECT
     sqlc.narg(rerun_of_task_id),
     sqlc.narg(trigger_evidence_kind),
     sqlc.narg(trigger_evidence_ref_id),
-    COALESCE(sqlc.narg('id')::uuid, gen_random_uuid())
+    COALESCE(sqlc.narg('id')::uuid, gen_random_uuid()), sqlc.narg('planning_chat_session_id')::uuid
 WHERE lock_task_owner_rows($1, $3, $2)
 RETURNING *;
 
@@ -1151,13 +1154,13 @@ RETURNING *;
 WITH retired_sessions AS (
     SELECT DISTINCT r.retired_session_id AS session_id
     FROM agent_task_queue r
-    WHERE r.agent_id = $1 AND r.issue_id = $2
+    WHERE r.agent_id = $1 AND r.issue_id = $2 AND r.chat_session_id IS NULL
       AND COALESCE(r.context->>'type', '') <> 'triage'
       AND r.retired_session_id IS NOT NULL
 ), resume_overflow_at AS (
     SELECT MAX(COALESCE(t.completed_at, t.started_at, t.dispatched_at, t.created_at)) AS at
     FROM agent_task_queue t
-    WHERE t.agent_id = $1 AND t.issue_id = $2
+    WHERE t.agent_id = $1 AND t.issue_id = $2 AND t.chat_session_id IS NULL
       AND COALESCE(t.context->>'type', '') <> 'triage'
       AND t.status = 'failed'
       AND (
@@ -1170,7 +1173,7 @@ WITH retired_sessions AS (
         t.started_at, t.issue_snapshot,
         COALESCE(t.completed_at, t.started_at, t.dispatched_at, t.created_at) AS terminal_at
     FROM agent_task_queue t
-    WHERE t.agent_id = $1 AND t.issue_id = $2
+    WHERE t.agent_id = $1 AND t.issue_id = $2 AND t.chat_session_id IS NULL
       AND COALESCE(t.context->>'type', '') <> 'triage'
       AND t.session_id IS NOT NULL
       AND t.status IN ('completed', 'failed', 'cancelled')
@@ -1240,7 +1243,7 @@ LIMIT 1;
 -- would tell the first execution run after accept that the previous turn's
 -- context could not be carried over — about a turn it was never entitled to.
 SELECT COALESCE(session_rollout_missing, FALSE) FROM agent_task_queue
-WHERE agent_id = $1 AND issue_id = $2
+WHERE agent_id = $1 AND issue_id = $2 AND chat_session_id IS NULL
   AND COALESCE(context->>'type', '') <> 'triage'
   AND status IN ('completed', 'failed')
   AND started_at IS NOT NULL
@@ -1718,6 +1721,7 @@ SET status = 'cancelled', completed_at = now(), prepare_lease_expires_at = NULL,
     cancelled_by_name = sqlc.narg('cancelled_by_name')
 WHERE id = sqlc.arg('id')
   AND chat_session_id = sqlc.arg('chat_session_id')
+  AND issue_id IS NULL
   AND status = 'queued'
 RETURNING *;
 
@@ -1747,6 +1751,7 @@ UPDATE agent_task_queue AS queued
 SET status = 'cancelled', completed_at = now(), prepare_lease_expires_at = NULL,
     cancelled_by_type = 'system', cancelled_by_id = NULL, cancelled_by_name = NULL
 WHERE queued.chat_session_id = $1
+  AND queued.issue_id IS NULL
   AND queued.status = 'queued'
   AND queued.id IS DISTINCT FROM (SELECT id FROM head)
 RETURNING queued.*;
@@ -1952,6 +1957,7 @@ WHERE id = (
     SELECT t.id FROM agent_task_queue t
     WHERE t.context->>'wakeup_id' IS NULL AND t.issue_id = @issue_id
       AND t.agent_id = @agent_id
+      AND t.chat_session_id IS NOT DISTINCT FROM sqlc.narg('planning_chat_session_id')::uuid
       AND t.comment_thread_id IS NOT DISTINCT FROM comment_thread_root_id(@new_trigger_comment_id::uuid)
       AND (
           t.status = 'queued'
@@ -2857,3 +2863,8 @@ RETURNING *;
 
 -- name: GetCommentThreadRootID :one
 SELECT comment_thread_root_id(@comment_id::uuid)::uuid AS id;
+
+-- name: HasPendingPlanningIssueTask :one
+SELECT EXISTS (SELECT 1 FROM agent_task_queue
+ WHERE chat_session_id = $1 AND issue_id IS NOT NULL
+ AND status IN ('queued', 'dispatched', 'running', 'waiting_local_directory', 'deferred'));

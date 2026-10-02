@@ -1250,6 +1250,7 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 	}
 
 	c = &codexClient{
+		planning:               &codexPlanning{ctx: runCtx, cancel: cancel, persist: opts.PersistCard, plans: map[string]string{}, seen: map[string]bool{}},
 		cfg:                    b.cfg,
 		stdin:                  stdin,
 		pending:                make(map[int]*pendingRPC),
@@ -1625,6 +1626,11 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			"threadId": threadID,
 			"input":    codexTurnInput(prompt, opts.ResumeExpected, resumed, opts.ResumeContinuityNotice),
 		}
+		mode := "default"
+		if opts.PlanMode {
+			mode = "plan"
+		}
+		turnParams["collaborationMode"] = map[string]any{"mode": mode, "settings": map[string]any{"model": c.resolvedModel, "reasoning_effort": nil}}
 		// Per-turn reasoning override. Mirrors the per-thread injection in
 		// startOrResumeThread; keeping both in sync is enforced by the
 		// shared `codexReasoningInjection` fixture in codex_test.go (see
@@ -1665,7 +1671,10 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		}
 		finishRunContextDone := func() {
 			waitingForTurn = false
-			if runCtx.Err() == context.DeadlineExceeded {
+			if errMsg := c.getTurnError(); errMsg != "" {
+				finishFirstItemWait("turn_failed")
+				finalStatus, finalError = "failed", errMsg
+			} else if runCtx.Err() == context.DeadlineExceeded {
 				finishFirstItemWait("execution_timeout")
 				finalStatus = "timeout"
 				finalError = fmt.Sprintf("codex timed out after %s", timeout)
@@ -1923,6 +1932,13 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			usageMap = map[string]TokenUsage{model: u}
 		}
 
+		// Once the question is durable, a provider failing to acknowledge the
+		// interrupt must not replay the turn. Cleanup has reaped the process.
+		if c.planning.waiting.Load() && ctx.Err() == nil {
+			finalStatus, finalError = "completed", ""
+			startupRefreshRetrySafe = false
+		}
+
 		resCh <- Result{
 			Status:                       finalStatus,
 			Output:                       finalOutput,
@@ -2010,6 +2026,7 @@ func codexTurnInput(prompt string, resumeExpected, resumed bool, notice string) 
 // turn/start calls must reference, and resumed indicates whether the prior
 // thread was picked up (only useful for logging).
 func (c *codexClient) startOrResumeThread(ctx context.Context, opts ExecOptions, logger *slog.Logger) (string, bool, error) {
+	c.resolvedModel = opts.Model
 	if priorThreadID := opts.ResumeSessionID; priorThreadID != "" {
 		// thread/resume reuses the thread's persisted model and reasoning
 		// effort; only override fields the daemon actually cares about.
@@ -2042,6 +2059,7 @@ func (c *codexClient) startOrResumeThread(ctx context.Context, opts ExecOptions,
 		resumeResult, err := c.request(ctx, "thread/resume", resumeParams)
 		if err == nil {
 			if threadID := extractThreadID(resumeResult); threadID != "" {
+				c.capturePlanningModel(resumeResult)
 				logger.Info("codex lifecycle",
 					"phase", "thread_resume_response",
 					"task_id", c.cfg.TaskID,
@@ -2103,6 +2121,7 @@ func (c *codexClient) startOrResumeThread(ctx context.Context, opts ExecOptions,
 	if err != nil {
 		return "", false, fmt.Errorf("codex thread/start failed: %w", err)
 	}
+	c.capturePlanningModel(startResult)
 	threadID := extractThreadID(startResult)
 	if threadID == "" {
 		return "", false, fmt.Errorf("codex thread/start returned no thread ID")
@@ -2164,6 +2183,11 @@ func applyCodexReasoningEffort(params map[string]any, level string) {
 	}
 	if _, isTurnStart := params["input"]; isTurnStart {
 		params["effort"] = level
+		if mode, ok := params["collaborationMode"].(map[string]any); ok {
+			if settings, ok := mode["settings"].(map[string]any); ok {
+				settings["reasoning_effort"] = level
+			}
+		}
 		return
 	}
 	cfg, _ := params["config"].(map[string]any)
@@ -2373,6 +2397,8 @@ func describeCodexSemanticActivity(msg Message) string {
 // ── codexClient: JSON-RPC 2.0 transport ──
 
 type codexClient struct {
+	planning               *codexPlanning
+	resolvedModel          string
 	cfg                    Config
 	stdin                  interface{ Write([]byte) (int, error) }
 	mu                     sync.Mutex
@@ -2927,6 +2953,8 @@ func (c *codexClient) handleServerRequest(raw map[string]json.RawMessage) {
 
 	// Auto-approve all exec/patch requests in daemon mode
 	switch method {
+	case "item/tool/requestUserInput":
+		c.planningQuestion(raw)
 	case "item/commandExecution/requestApproval", "execCommandApproval":
 		c.respond(id, map[string]any{"decision": "accept"})
 	case "item/fileChange/requestApproval", "applyPatchApproval":
@@ -3504,6 +3532,10 @@ func (c *codexClient) handleRawNotification(method string, params map[string]any
 		aborted := status == "cancelled" || status == "canceled" ||
 			status == "aborted" || status == "interrupted"
 
+		if status == "interrupted" && c.planning != nil && c.planning.waiting.Load() {
+			aborted = false
+		}
+
 		// Capture the error message from failed turns so callers can surface
 		// a real reason instead of falling back to "empty output".
 		if status == "failed" {
@@ -3698,6 +3730,9 @@ func (c *codexClient) completeAgentMessage(itemID, text string) {
 }
 
 func (c *codexClient) handleItemNotification(method string, params map[string]any) {
+	if c.planningItem(method, params) {
+		return
+	}
 	item, _ := params["item"].(map[string]any)
 	itemType, _ := item["type"].(string)
 	itemID, _ := item["id"].(string)

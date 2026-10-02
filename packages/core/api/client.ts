@@ -1,3 +1,4 @@
+import { planningLinksSchema, type PlanningLink, chatCardsSchema, type CardDecision, type ChatCard } from "./planning-schema";
 import type { ZodType } from "zod";
 import type { IssueWakeup, IssueWakeupInput, IssueWakeupSummaryRow, PausedWakeup, SystemWakeup, WakeupRun, WorkspaceSystemWakeup } from "../types/issue-wakeup";
 import type { WorkspaceWakeupPage, WorkspaceWakeupFilters } from "../types/issue-wakeup";
@@ -3648,6 +3649,18 @@ export class ApiClient {
   }
 
   // Chat Sessions
+  async listIssuePlanningChats(id: string): Promise<PlanningLink[]> {
+    const raw: unknown = await this.fetch(`/api/issues/${id}/planning-chats`);
+    return parseWithFallback<PlanningLink[]>(raw, planningLinksSchema, [], { endpoint: "GET /api/issues/:id/planning-chats" });
+  }
+  async listChatPlanningIssues(id: string): Promise<PlanningLink[]> {
+    const raw: unknown = await this.fetch(`/api/chat/sessions/${id}/planning-issues`);
+    return parseWithFallback<PlanningLink[]>(raw, planningLinksSchema, [], { endpoint: "GET /api/chat/sessions/:id/planning-issues" });
+  }
+  async listChatCards(id: string): Promise<ChatCard[]> {
+    const raw: unknown = await this.fetch(`/api/chat/sessions/${id}/cards`);
+    return parseWithFallback<ChatCard[]>(raw, chatCardsSchema, [], { endpoint: "GET /api/chat/sessions/:id/cards" });
+  }
   async listChatSessions(
     params?: { status?: string },
     workspaceSlug?: string,
@@ -3672,15 +3685,17 @@ export class ApiClient {
     data: {
       agent_id: string;
       title?: string;
+      plan_mode?: boolean;
       project_id?: string | null;
     },
     workspaceSlug?: string,
   ): Promise<ChatSession> {
-    return this.fetch("/api/chat/sessions", {
+    const raw: unknown = await this.fetch("/api/chat/sessions", {
       method: "POST",
       headers: workspaceHeader(workspaceSlug),
       body: JSON.stringify(data),
     });
+    return parseWithFallback(raw, ChatSessionSchema, EMPTY_CHAT_SESSION, { endpoint: "POST /api/chat/sessions" });
   }
 
   async deleteChatSession(id: string): Promise<void> {
@@ -3709,12 +3724,13 @@ export class ApiClient {
 
   async updateChatSession(
     id: string,
-    data: { title: string } | { project_id: string | null },
+    data: { title: string } | { project_id: string | null } | { plan_mode: boolean },
   ): Promise<ChatSession> {
-    return this.fetch(`/api/chat/sessions/${id}`, {
+    const raw: unknown = await this.fetch(`/api/chat/sessions/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
     });
+    return parseWithFallback(raw, ChatSessionSchema, EMPTY_CHAT_SESSION, { endpoint: "PATCH /api/chat/sessions/:id" });
   }
 
   async setChatSessionPinned(id: string, pinned: boolean): Promise<ChatSession> {
@@ -3797,11 +3813,13 @@ export class ApiClient {
     sessionId: string,
     content: string,
     attachmentIds?: string[],
+    cardDecision?: CardDecision,
   ): Promise<SendChatMessageResponse> {
     const body: {
       content: string;
       attachment_ids?: string[];
-    } = { content };
+      card_decision?: CardDecision;
+    } = { content, card_decision: cardDecision };
     if (attachmentIds && attachmentIds.length > 0) {
       body.attachment_ids = attachmentIds;
     }

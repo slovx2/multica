@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/multica-ai/multica/server/pkg/planning"
 	"log/slog"
 	"strings"
 	"time"
@@ -24,6 +25,10 @@ type Backend interface {
 
 // ExecOptions configures a single execution.
 type ExecOptions struct {
+	PlanMode bool
+	// PersistCard must acknowledge durable storage before the provider is interrupted.
+	PersistCard func(context.Context, planning.Card) error
+
 	// EnableTaskSupplement installs provider hooks only for runs whose daemon/server
 	// capability handshake enabled additional messages.
 	EnableTaskSupplement bool

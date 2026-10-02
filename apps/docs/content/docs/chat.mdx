@@ -9,9 +9,9 @@ Chat fits work that hasn't formed a clear issue yet: sorting out ideas, checking
 
 **Chat is a one-to-one conversation between you and an [agent](/agents)** — stepping outside the [issue](/issues) board. The agent starts with **no issue context** — it isn't looking at your board and won't turn the conversation into issues on its own — and the entire conversation is **fully private** (nobody else in the [workspace](/workspaces), including admins, can see it). It fits discussing an approach with an agent, brainstorming, or asking a question that does not belong to any issue.
 
-A chat is **not bound to any issue**: the agent doesn't automatically receive an issue's description and comments, but it can still use the Multica CLI to query workspaces, projects, issues, and skills within its permissions.
+A new chat starts **without an issue context**: the agent doesn't automatically receive an issue's description and comments, but it can still use the Multica CLI to query workspaces, projects, issues, and skills within its permissions.
 
-A chat can also carry background. Click **+** at the bottom left of the input and choose **Project context** to attach a [project](/projects) to the conversation; when the agent runs, it receives that project's description, repositories, and other resources.
+Click the **No project** pill above the input to select a [project](/projects). The agent receives its description, repositories, and resources. Opening Chat from a project selects that project automatically. A local-directory resource with `scope=chat` applies only to chats; `scope=all` (the default) also applies to issue runs.
 
 ![A chat with an agent: a question answered with the result organized into a table](/images/docs/chat-conversation.webp)
 
@@ -36,6 +36,30 @@ Before the first message, Chat shows up to three suggestions configured for the 
 | A quick look at workspace information with no work record needed | **Chat** |
 
 Direct chats created in Multica are visible only to their creator; other workspace members and admins cannot read them. Conclusions the team needs to see together should be written into an issue, a project description, or a skill.
+
+## Plan mode and planning issues
+
+With a Claude Code or Codex runtime, turn on **Plan mode** above the input before sending a message. The setting belongs to the conversation. Other runtimes reject plan mode with an explicit error.
+
+Native questions appear as cards with options and free-text fields. Answering starts the next turn in the same conversation. Native plans appear as Markdown cards:
+
+- **Approve, create/update issues** turns plan mode off and asks the agent to record the plan, including any feedback you entered, as issues without implementing it.
+- **Reject** sends your feedback in a new plan-mode turn. A newer plan supersedes an older pending plan.
+
+The provider process ends while waiting for your decision. There is no “approve and implement” action.
+
+Issues created or updated from the chat are automatically linked. **Planning chats** on an issue and **Issues from this chat** provide navigation in both directions. Links do not grant access to another member's private chat.
+
+When the conversation's creator explicitly mentions the same planner on a linked issue, it resumes their most recently associated active conversation, including its directory and mode. Mentions by other members run as ordinary issue tasks. The agent receives the triggering issue comment, replies on the issue, and leaves a follow-up record in Chat. Ordinary assignee tasks use separate sessions and directories.
+
+Clearing the chat queue skips linked issue replies. Stop those tasks explicitly on the issue, subject to the agent's access permissions. While one is pending, replacing a chat reply, archiving, or deleting the conversation is blocked so that the issue reply is not silently cancelled.
+
+You can also manage a link with the CLI:
+
+```bash
+multica issue update ISSUE --planning-chat CHAT_SESSION_UUID
+multica issue update ISSUE --planning-chat CHAT_SESSION_UUID --unlink-planning-chat
+```
 
 ## Multi-turn context
 

@@ -210,6 +210,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		unreadableAssistantCount := 0
 		controlErrors := make(chan error, 1)
 		var controlWrites sync.WaitGroup
+		planningState := newClaudePlanning(opts.Cwd, cmd.Env)
 
 		// On cancellation / timeout, terminate claude (and every MCP server and
 		// tool subprocess it spawned) BEFORE unblocking the scanner. EOF stdin
@@ -257,6 +258,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 				continue
 			}
 			eventCount++
+			planningState.observe(msg)
 
 			switch msg.Type {
 			case "assistant":
@@ -306,9 +308,12 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 					reply, _ = supplements.prepareHook(msg)
 				}
 				controlWrites.Add(1)
-				go func(msg claudeSDKMessage, reply func(io.Writer) error) {
+				go func(msg claudeSDKMessage, reply func(io.Writer) error, conversationID string) {
 					defer controlWrites.Done()
 					if reply == nil {
+						if planningState.handle(runCtx, msg, conversationID, opts, inputWriter, cancel) {
+							return
+						}
 						b.handleControlRequest(msg, inputWriter)
 						return
 					}
@@ -319,7 +324,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 						}
 						cancel()
 					}
-				}(msg, reply)
+				}(msg, reply, sessionID)
 			case "control_response":
 				if supplements != nil {
 					supplements.handleResponse(msg.Response)
@@ -392,6 +397,14 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 			},
 			completionGuardError,
 		)
+
+		planningState.mu.Lock()
+		if planningState.err != nil {
+			finalStatus, finalError = "failed", planningState.err.Error()
+		} else if planningState.waiting && ctx.Err() == nil {
+			finalStatus, finalError, finalOutput = "completed", "", "Waiting for your response in the chat card."
+		}
+		planningState.mu.Unlock()
 
 		// cmd.Wait() has returned — os/exec's stderr copy goroutine has
 		// observed every byte claude wrote to stderr before exiting, so
@@ -1039,9 +1052,10 @@ type claudeContentBlock struct {
 }
 
 type claudeControlRequestPayload struct {
-	Subtype  string          `json:"subtype"`
-	ToolName string          `json:"tool_name,omitempty"`
-	Input    json.RawMessage `json:"input,omitempty"`
+	Subtype   string          `json:"subtype"`
+	ToolName  string          `json:"tool_name,omitempty"`
+	ToolUseID string          `json:"tool_use_id,omitempty"`
+	Input     json.RawMessage `json:"input,omitempty"`
 }
 
 // ── Shared helpers ──
@@ -1061,11 +1075,12 @@ func trySend(ch chan<- Message, msg Message) bool {
 // overridden by user-configured custom_args. Overriding these would break
 // the daemon↔Claude communication protocol.
 var claudeBlockedArgs = map[string]blockedArgMode{
-	"-p":                blockedStandalone, // non-interactive mode
-	"--output-format":   blockedWithValue,  // stream-json protocol
-	"--input-format":    blockedWithValue,  // stream-json protocol
-	"--permission-mode": blockedWithValue,  // bypassPermissions for autonomous operation
-	"--mcp-config":      blockedWithValue,  // set by daemon from agent.mcp_config
+	"--permission-prompt-tool": blockedWithValue,
+	"-p":                       blockedStandalone, // non-interactive mode
+	"--output-format":          blockedWithValue,  // stream-json protocol
+	"--input-format":           blockedWithValue,  // stream-json protocol
+	"--permission-mode":        blockedWithValue,  // bypassPermissions for autonomous operation
+	"--mcp-config":             blockedWithValue,  // set by daemon from agent.mcp_config
 	// `--effort` is owned by the per-agent thinking_level picker so a
 	// user-supplied custom_arg cannot silently outvote it. The daemon
 	// injects --effort only when opts.ThinkingLevel is set; if a user
@@ -1081,15 +1096,18 @@ func buildClaudeArgs(opts ExecOptions, logger *slog.Logger) []string {
 		"--output-format", "stream-json",
 		"--input-format", "stream-json",
 		"--verbose",
-		"--permission-mode", "bypassPermissions",
-		// AskUserQuestion is Claude Code's built-in interactive question tool.
-		// The daemon runs Claude in non-interactive stream-json mode and has
-		// no UI for the prompt to render in, so a call returns an empty
-		// answer and the agent ends up "inferring" silently — the user
-		// never sees the question (see GitHub #2588). User-facing
-		// clarification belongs in an issue comment instead.
-		"--disallowedTools", "AskUserQuestion",
 	}
+	if opts.PlanMode {
+		args = append(args, "--permission-mode", "plan", "--permission-prompt-tool", "stdio")
+	} else {
+		args = append(args, "--permission-mode", "bypassPermissions")
+		if opts.PersistCard == nil {
+			args = append(args, "--disallowedTools", "AskUserQuestion")
+		} else {
+			args = append(args, "--permission-prompt-tool", "stdio")
+		}
+	}
+
 	if hasManagedMcpConfig(opts.McpConfig) {
 		// A saved agent-level config is authoritative, including an explicitly
 		// empty object. With no managed config, omit strict mode so Claude can

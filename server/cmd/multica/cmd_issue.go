@@ -617,6 +617,7 @@ func init() {
 	issueCreateCmd.Flags().String("title", "", "Issue title (required)")
 	issueCreateCmd.Flags().String("description", "", "Issue description (decodes \\n, \\r, \\t, \\\\; pipe via --description-stdin to preserve literal backslashes)")
 	issueCreateCmd.Flags().Bool("description-stdin", false, "Read issue description from stdin (preserves multi-line content verbatim)")
+	issueCreateCmd.Flags().String("planning-chat", "", "Link a planning chat session UUID")
 	issueCreateCmd.Flags().String("description-file", "", "Read issue description from a UTF-8 file (preserves multi-line content verbatim; use this on Windows when stdin piping mangles non-ASCII bytes). The path must be inside the current working directory unless --allow-external-file is set.")
 	issueCreateCmd.Flags().Bool("allow-external-file", false, "Allow --description-file / --attachment to read a path outside the current working directory. Off by default so a stale file from another run/environment can't be picked up (MUL-4252).")
 	issueCreateCmd.Flags().String("status", "", "Issue status")
@@ -638,6 +639,8 @@ func init() {
 	issueUpdateCmd.Flags().String("title", "", "New title")
 	issueUpdateCmd.Flags().String("description", "", "New description (decodes \\n, \\r, \\t, \\\\; pipe via --description-stdin to preserve literal backslashes)")
 	issueUpdateCmd.Flags().Bool("description-stdin", false, "Read new description from stdin (preserves multi-line content verbatim)")
+	issueUpdateCmd.Flags().String("planning-chat", "", "Link a planning chat session UUID")
+	issueUpdateCmd.Flags().Bool("unlink-planning-chat", false, "Remove the --planning-chat association")
 	issueUpdateCmd.Flags().String("description-file", "", "Read new description from a UTF-8 file (preserves multi-line content verbatim; use this on Windows when stdin piping mangles non-ASCII bytes). The path must be inside the current working directory unless --allow-external-file is set.")
 	issueUpdateCmd.Flags().Bool("allow-external-file", false, "Allow --description-file / --attachment to read a path outside the current working directory. Off by default so a stale temp file from another run/environment can't be picked up (MUL-4252).")
 	issueUpdateCmd.Flags().StringSlice("attachment", nil, "Local file path(s) to attach to the issue description (repeatable); references are appended to the end of the description")
@@ -1449,6 +1452,9 @@ func runIssueCreate(cmd *cobra.Command, _ []string) error {
 	defer cancel()
 
 	body := map[string]any{"title": title}
+	if id, _ := cmd.Flags().GetString("planning-chat"); id != "" {
+		body["planning_chat_session_id"] = id
+	}
 	propertyFlags, _ := cmd.Flags().GetStringArray("property")
 	var createProperties map[string]json.RawMessage
 	if len(propertyFlags) > 0 {
@@ -1694,6 +1700,13 @@ func runIssueUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	body := map[string]any{}
+	if id, _ := cmd.Flags().GetString("planning-chat"); id != "" {
+		body["planning_chat_session_id"] = id
+	}
+	if unlink, _ := cmd.Flags().GetBool("unlink-planning-chat"); unlink {
+		body["unlink_planning_chat"] = true
+	}
+
 	if cmd.Flags().Changed("title") {
 		v, _ := cmd.Flags().GetString("title")
 		body["title"] = v

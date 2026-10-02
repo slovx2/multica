@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/multica-ai/multica/server/pkg/planning"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -1383,6 +1384,16 @@ func (s *TaskService) enqueueIssueTaskWithCommentPlan(ctx context.Context, issue
 // Unlike EnqueueTaskForIssue, this takes an explicit agent ID rather than
 // deriving it from the issue assignee.
 func (s *TaskService) EnqueueTaskForMention(ctx context.Context, issue db.Issue, agentID pgtype.UUID, triggerCommentID pgtype.UUID, origin RunOrigin) (db.AgentTaskQueue, error) {
+	if triggerCommentID.Valid {
+		sessionID, err := s.LatestPlanningChat(ctx, issue, agentID, triggerCommentID)
+		if err != nil {
+			return db.AgentTaskQueue{}, err
+		}
+		if sessionID.Valid {
+			ctx = context.WithValue(ctx, planningMentionKey{}, sessionID)
+		}
+	}
+
 	return s.enqueueMentionTask(ctx, issue, agentID, triggerCommentID, false, pgtype.UUID{}, false, "", pgtype.UUID{}, pgtype.UUID{}, origin)
 }
 
@@ -1459,32 +1470,60 @@ func (s *TaskService) enqueueMentionTaskWithCommentPlan(ctx context.Context, iss
 	originatorUserID := attr.UserID
 	runtimeMCPOverlay := s.buildRuntimeMCPOverlay(ctx, originatorUserID, agent)
 	attrSource, attrDelegatedFrom, attrEvidenceKind, attrEvidenceRef := attributionCreateParams(attr)
-	task, err := s.Queries.CreateAgentTask(ctx, db.CreateAgentTaskParams{
-		ID:                   dbid.NewV7(),
-		AgentID:              agentID,
-		RuntimeID:            agent.RuntimeID,
-		IssueID:              issue.ID,
-		Priority:             priorityToInt(issue.Priority),
-		TriggerCommentID:     triggerCommentID,
-		CoalescedCommentIds:  coalescedCommentIDs,
-		TriggerSummary:       s.buildCommentTriggerSummary(ctx, issue.WorkspaceID, triggerCommentID),
-		IsLeaderTask:         pgtype.Bool{Bool: isLeader, Valid: isLeader},
-		ForceFreshSession:    pgtype.Bool{Bool: forceFreshSession, Valid: forceFreshSession},
-		HandoffNote:          pgtype.Text{String: handoffNote, Valid: handoffNote != ""},
-		SquadID:              squadID,
-		OriginatorUserID:     originatorUserID,
-		AccountableUserID:    attr.AccountableUserID,
-		RuleVersionID:        attr.RuleVersionID,
-		RerunOfTaskID:        rerunOfTaskID,
-		RuntimeMcpOverlay:    runtimeMCPOverlay.Overlay,
-		RuntimeConnectedApps: runtimeMCPOverlay.ConnectedApps,
-		OriginatorSource:     attrSource,
-		DelegatedFromTaskID:  attrDelegatedFrom,
-		TriggerEvidenceKind:  attrEvidenceKind,
-		TriggerEvidenceRefID: attrEvidenceRef,
-		// Stamp the reviewed head so dedup can distinguish this run's target
-		// from a later request against a new HEAD (TEN-356).
-		HeadSha: headShaText(s.ResolveIssueReviewSHA(ctx, issue.ID)),
+	var task db.AgentTaskQueue
+	err = s.runInTx(ctx, func(qtx *db.Queries) error {
+		var planningSession pgtype.UUID
+		if sessionID, ok := ctx.Value(planningMentionKey{}).(pgtype.UUID); ok && !isLeader {
+			planningSession = sessionID
+			if _, err = qtx.LockChatSessionForRuntimeBind(ctx, planningSession); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			cs, loadErr := qtx.GetChatSession(ctx, planningSession)
+			if loadErr != nil && !errors.Is(loadErr, pgx.ErrNoRows) {
+				return loadErr
+			}
+			if loadErr != nil || cs.Status != "active" || cs.AgentID != agentID || cs.WorkspaceID != issue.WorkspaceID {
+				planningSession = pgtype.UUID{}
+			}
+			if planningSession.Valid && cs.PlanMode {
+				runtime, e := qtx.GetAgentRuntime(ctx, agent.RuntimeID)
+				if e != nil {
+					return e
+				}
+				if !planning.Supported(runtime.Provider) {
+					planningSession = pgtype.UUID{}
+				}
+			}
+		}
+		task, err = qtx.CreateAgentTask(ctx, db.CreateAgentTaskParams{
+			PlanningChatSessionID: planningSession,
+			ID:                    dbid.NewV7(),
+			AgentID:               agentID,
+			RuntimeID:             agent.RuntimeID,
+			IssueID:               issue.ID,
+			Priority:              priorityToInt(issue.Priority),
+			TriggerCommentID:      triggerCommentID,
+			CoalescedCommentIds:   coalescedCommentIDs,
+			TriggerSummary:        s.buildCommentTriggerSummary(ctx, issue.WorkspaceID, triggerCommentID),
+			IsLeaderTask:          pgtype.Bool{Bool: isLeader, Valid: isLeader},
+			ForceFreshSession:     pgtype.Bool{Bool: forceFreshSession, Valid: forceFreshSession},
+			HandoffNote:           pgtype.Text{String: handoffNote, Valid: handoffNote != ""},
+			SquadID:               squadID,
+			OriginatorUserID:      originatorUserID,
+			AccountableUserID:     attr.AccountableUserID,
+			RuleVersionID:         attr.RuleVersionID,
+			RerunOfTaskID:         rerunOfTaskID,
+			RuntimeMcpOverlay:     runtimeMCPOverlay.Overlay,
+			RuntimeConnectedApps:  runtimeMCPOverlay.ConnectedApps,
+			OriginatorSource:      attrSource,
+			DelegatedFromTaskID:   attrDelegatedFrom,
+			TriggerEvidenceKind:   attrEvidenceKind,
+			TriggerEvidenceRefID:  attrEvidenceRef,
+			// Stamp the reviewed head so dedup can distinguish this run's target
+			// from a later request against a new HEAD (TEN-356).
+			HeadSha: headShaText(s.ResolveIssueReviewSHA(ctx, issue.ID)),
+		})
+		return err
 	})
 	if err != nil {
 		// A concurrent enqueue for the same (issue, agent) won the race and the
@@ -2326,6 +2365,7 @@ func (s *TaskService) SendDirectChatMessage(
 	attachmentIDs []pgtype.UUID,
 	uploaderType string,
 	uploaderID pgtype.UUID,
+	decisions ...*planning.Decision,
 ) (*DirectChatSendResult, error) {
 	// Build the per-task Composio overlay before the transaction — it can do
 	// network I/O and must not run with a DB transaction open.
@@ -2374,6 +2414,34 @@ func (s *TaskService) SendDirectChatMessage(
 			return ErrChatTaskAgentNoRuntime
 		}
 
+		var decision *planning.Decision
+		if len(decisions) > 0 {
+			decision = decisions[0]
+		}
+		var card db.ChatCard
+		var decisionStatus string
+		if decision != nil {
+			card, decisionStatus, content, err = prepareChatDecision(ctx, qtx, currentSession, *decision)
+			if err != nil {
+				return err
+			}
+			if decisionStatus == "approved" || decisionStatus == "rejected" {
+				currentSession, err = qtx.UpdateChatPlanMode(ctx, db.UpdateChatPlanModeParams{ID: session.ID, WorkspaceID: session.WorkspaceID, PlanMode: decisionStatus == "rejected"})
+				if err != nil {
+					return err
+				}
+			}
+		}
+		if currentSession.PlanMode {
+			runtime, err := qtx.GetAgentRuntime(ctx, carrier.RuntimeID)
+			if err != nil {
+				return err
+			}
+			if !planning.Supported(runtime.Provider) {
+				return ErrPlanModeUnsupported
+			}
+		}
+
 		// The database status of every newly-created task is "queued" until a
 		// daemon claims it. Product queue semantics are positional instead: this
 		// send is a follow-up only when another visible task in the same session
@@ -2412,6 +2480,15 @@ func (s *TaskService) SendDirectChatMessage(
 			return fmt.Errorf("stamp direct chat input owner: %w", err)
 		}
 		out.Task = task
+		if decision != nil {
+			response, err := json.Marshal(decision)
+			if err != nil {
+				return err
+			}
+			if _, err := qtx.ResolveChatCard(ctx, db.ResolveChatCardParams{ID: card.ID, WorkspaceID: session.WorkspaceID, ChatSessionID: session.ID, Status: decisionStatus, Response: response, ResponseTaskID: task.ID}); err != nil {
+				return err
+			}
+		}
 
 		// Adopt the onboarding kickoff, if this session still has an unowned one.
 		// It is written by OpenMikaOnboardingChat with no task, so this is the
@@ -3118,7 +3195,7 @@ func (s *TaskService) settleQueuedChatInput(
 	task db.AgentTaskQueue,
 	action string,
 ) (*CancelledChatMessageResult, error) {
-	if !task.ChatSessionID.Valid {
+	if !task.ChatSessionID.Valid || task.IssueID.Valid {
 		return nil, nil
 	}
 	inputOwnerID := chatInputOwnerID(task)
@@ -3195,7 +3272,7 @@ func deleteUserChatInput(ctx context.Context, qtx *db.Queries, inputOwnerID pgty
 }
 
 func (s *TaskService) finalizeCancelledChatMessage(ctx context.Context, task db.AgentTaskQueue, opts CancelTaskOptions) *CancelledChatMessageResult {
-	if !task.ChatSessionID.Valid {
+	if !task.ChatSessionID.Valid || task.IssueID.Valid {
 		return nil
 	}
 	var cancelled *CancelledChatMessageResult
@@ -4647,6 +4724,19 @@ func (s *TaskService) writeChatCompletionOutcome(ctx context.Context, qtx *db.Qu
 	// suppress the pass that would have replaced them.
 	body, _ = splitChatQuickActions(body)
 	isEmpty := strings.TrimSpace(body) == ""
+
+	if task.IssueID.Valid {
+		issue, loadErr := qtx.GetIssue(ctx, task.IssueID)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		workspace, loadErr := qtx.GetWorkspace(ctx, issue.WorkspaceID)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		body = fmt.Sprintf("Mentioned in [%s](mention://issue/%s) — replied on the issue.", IssueIdentifier(workspace.IssuePrefix, issue.Number), util.UUIDToString(issue.ID))
+		isEmpty = false
+	}
 
 	// MUL-4899 completion-boundary observation. Measures whether the delivery
 	// contract in the runtime brief is actually landing on the chat surface.

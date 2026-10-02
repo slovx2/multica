@@ -486,6 +486,21 @@ type ChannelUserBinding struct {
 	BoundAt        pgtype.Timestamptz `json:"bound_at"`
 }
 
+type ChatCard struct {
+	ID             pgtype.UUID        `json:"id"`
+	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
+	ChatSessionID  pgtype.UUID        `json:"chat_session_id"`
+	TaskID         pgtype.UUID        `json:"task_id"`
+	SourceKey      string             `json:"source_key"`
+	Kind           string             `json:"kind"`
+	Status         string             `json:"status"`
+	Payload        []byte             `json:"payload"`
+	Response       []byte             `json:"response"`
+	ResponseTaskID pgtype.UUID        `json:"response_task_id"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type ChatDraftRestore struct {
 	ID            pgtype.UUID        `json:"id"`
 	ChatSessionID pgtype.UUID        `json:"chat_session_id"`
@@ -542,6 +557,7 @@ type ChatSession struct {
 	PinnedAt            pgtype.Timestamptz `json:"pinned_at"`
 	ProjectID           pgtype.UUID        `json:"project_id"`
 	ExplicitlyCreatedAt pgtype.Timestamptz `json:"explicitly_created_at"`
+	PlanMode            bool               `json:"plan_mode"`
 }
 
 type ClientUsageDaily struct {
@@ -826,6 +842,14 @@ type Issue struct {
 	LastActivityAt     pgtype.Timestamptz `json:"last_activity_at"`
 	TriageState        pgtype.Text        `json:"triage_state"`
 	DuplicateOfIssueID pgtype.UUID        `json:"duplicate_of_issue_id"`
+}
+
+type IssueChatSession struct {
+	WorkspaceID   pgtype.UUID        `json:"workspace_id"`
+	IssueID       pgtype.UUID        `json:"issue_id"`
+	ChatSessionID pgtype.UUID        `json:"chat_session_id"`
+	RelationType  string             `json:"relation_type"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 }
 
 type IssueChildEvent struct {

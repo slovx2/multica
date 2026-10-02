@@ -106,7 +106,7 @@ export function useCreateChatSession() {
   const wsId = useWorkspaceId();
 
   return useMutation({
-    mutationFn: (data: { agent_id: string; title?: string; project_id?: string | null }) => {
+    mutationFn: (data: { agent_id: string; title?: string; project_id?: string | null; plan_mode?: boolean }) => {
       logger.info("createChatSession.start", {
         agent_id: data.agent_id,
         project_id: data.project_id,

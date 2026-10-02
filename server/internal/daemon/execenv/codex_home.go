@@ -402,13 +402,13 @@ func codexSessionStoreNamespace(profile string) string {
 // collide. Returns "" when neither stable identifier is available.
 func codexSessionStoreKey(profile string, task TaskContextForEnv) string {
 	storeID := sanitizePathSegment(task.IssueID)
-	if storeID == "" {
-		chatID := sanitizePathSegment(task.ChatSessionID)
-		if chatID == "" {
-			return ""
-		}
+	if chatID := sanitizePathSegment(task.ChatSessionID); chatID != "" {
 		storeID = "chat_" + chatID
 	}
+	if storeID == "" {
+		return ""
+	}
+
 	agent := sanitizePathSegment(task.AgentID)
 	if agent == "" {
 		agent = "_"

@@ -379,6 +379,7 @@ type ChatSessionDeletedPayload struct {
 // patch the session row in their cached list so the dropdown stays in sync
 // without a full refetch.
 type ChatSessionUpdatedPayload struct {
+	PlanMode      *bool  `json:"plan_mode,omitempty"`
 	ChatSessionID string `json:"chat_session_id"`
 	Title         string `json:"title"`
 	// ProjectID is set only by the project-context update path. The double

@@ -226,6 +226,9 @@ func buildPromptBody(task Task, provider string) string {
 		}
 		return b.String()
 	}
+	if task.ChatSessionID != "" && task.IssueID != "" {
+		return buildCommentPrompt(task, provider) + "\nContinue in this planning conversation. Post your reply in the issue comment thread, not as a chat-only answer. If the plan changed, post a comment and use multica issue update to update the issue description. Do not disclose unrelated private conversation context.\n"
+	}
 	if task.ChatSessionID != "" {
 		return buildChatPrompt(task)
 	}

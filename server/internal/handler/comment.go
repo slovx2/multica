@@ -2478,8 +2478,16 @@ func (h *Handler) mergeCommentIntoPendingTask(ctx context.Context, issue db.Issu
 		}
 		return commentMergeError
 	}
+	var planningSession pgtype.UUID
+	if trigger.Source == commentTriggerSourceMentionAgent {
+		planningSession, err = h.TaskService.LatestPlanningChat(ctx, issue, trigger.Agent.ID, newTriggerCommentID)
+		if err != nil {
+			return commentMergeError
+		}
+	}
 	overlay, connectedApps := h.TaskService.BuildRuntimeMCPOverlayForMerge(ctx, attr.UserID, trigger.Agent)
 	row, err := h.Queries.MergeCommentIntoPendingTask(ctx, db.MergeCommentIntoPendingTaskParams{
+		PlanningChatSessionID:   planningSession,
 		IssueID:                 issue.ID,
 		AgentID:                 trigger.Agent.ID,
 		NewTriggerCommentID:     newTriggerCommentID,

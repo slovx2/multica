@@ -32,6 +32,7 @@ const (
 // project resources. Defined locally so the daemon does not have to import
 // the server handler package.
 type localDirectoryRef struct {
+	Scope         string `json:"scope,omitempty"`
 	LocalPath     string `json:"local_path"`
 	DaemonID      string `json:"daemon_id"`
 	Label         string `json:"label,omitempty"`
@@ -122,7 +123,26 @@ func localDirectoryAssignmentForTask(task Task, daemonID string) (*localDirector
 	if task.IsLeaderTask {
 		return nil, nil
 	}
-	return findLocalDirectoryAssignment(task.ProjectResources, daemonID)
+	resources := task.ProjectResources
+	if task.ChatSessionID == "" {
+		resources = nil
+		for _, resource := range task.ProjectResources {
+			if resource.ResourceType == "local_directory" {
+				var ref localDirectoryRef
+				if err := json.Unmarshal(resource.ResourceRef, &ref); err != nil {
+					return nil, err
+				}
+				if ref.Scope == "chat" {
+					continue
+				}
+				if ref.Scope != "" && ref.Scope != "all" {
+					return nil, fmt.Errorf("unsupported local directory scope: %s", ref.Scope)
+				}
+			}
+			resources = append(resources, resource)
+		}
+	}
+	return findLocalDirectoryAssignment(resources, daemonID)
 }
 
 // localDirectoryLockExempt reports whether a task may run inside an in_place

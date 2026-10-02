@@ -450,6 +450,7 @@ export function useChatController(opts?: { isActive?: boolean }) {
             agent_id: activeAgent.id,
             title: deriveChatTitle(titleSeed),
             project_id: activeProjectId,
+            plan_mode: useChatStore.getState().draftPlanMode,
           });
           return session.id;
         } finally {

@@ -31,6 +31,8 @@ export const QUICK_ACTIONS_PENDING_TIMEOUT_MS = 12_000;
 // will be misattributed during a workspace switch race window.
 
 export const chatKeys = {
+  cards: (wsId: string, sessionId: string | null) => [...chatKeys.all(wsId), "cards", sessionId] as const,
+  planningLinks: (wsId: string, issueId?: string, sessionId?: string | null) => [...chatKeys.all(wsId), "planning-links", issueId, sessionId] as const,
   all: (wsId: string) => ["chat", wsId] as const,
   /** Full sessions list (active + archived); the dropdown splits locally. */
   sessions: (wsId: string) => [...chatKeys.all(wsId), "sessions"] as const,

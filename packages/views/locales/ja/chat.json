@@ -245,5 +245,21 @@
     "delete": "チャットを削除",
     "archive": "チャットをアーカイブ",
     "unarchive": "アーカイブを解除"
+  },
+  "planning": {
+    "mode": "計画モード",
+    "pending": "保留中",
+    "approved": "承認済み",
+    "rejected": "却下済み",
+    "superseded": "新しい計画に置換",
+    "answered": "回答済み",
+    "feedback": "修正の意見",
+    "approve": "承認してタスクを作成・更新",
+    "reject": "却下",
+    "free_text": "自由入力",
+    "answer": "回答を送信",
+    "links": "計画チャット",
+    "issues": "このチャットのタスク",
+    "unsupported": "計画モードは Claude と Codex のみ対応しています。"
   }
 }

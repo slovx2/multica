@@ -397,6 +397,7 @@ export function ProjectResourcesSection({ projectId }: { projectId: string }) {
             <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
               {resources.map((resource) => (
                 <ResourceRow
+                  onScopeChange={(scope) => updateResource.mutate({ resourceId: resource.id, data: { resource_ref: { ...resource.resource_ref, scope } } }, { onError: (error) => toast.error(error.message) })}
                   key={resource.id}
                   resource={resource}
                   githubRepoDescription={
@@ -628,6 +629,7 @@ function worktreeUnavailableReason(
 }
 
 interface ResourceRowProps {
+  onScopeChange: (scope: "all" | "chat") => void;
   resource: ProjectResource;
   githubRepoDescription?: string;
   localDaemonId: string | null;
@@ -641,6 +643,7 @@ interface ResourceRowProps {
 }
 
 function ResourceRow({
+  onScopeChange,
   resource,
   githubRepoDescription,
   localDaemonId,
@@ -734,6 +737,7 @@ function ResourceRow({
   if (isLocalDirectoryRef(resource)) {
     return (
       <LocalDirectoryRow
+        onScopeChange={onScopeChange}
         resource={resource}
         localDaemonId={localDaemonId}
         onRemove={onRemove}
@@ -760,6 +764,7 @@ function ResourceRow({
 }
 
 interface LocalDirectoryRowProps {
+  onScopeChange: (scope: "all" | "chat") => void;
   resource: ProjectResource & { resource_ref: LocalDirectoryResourceRef };
   localDaemonId: string | null;
   onRemove: () => void;
@@ -769,6 +774,7 @@ interface LocalDirectoryRowProps {
 }
 
 function LocalDirectoryRow({
+  onScopeChange,
   resource,
   localDaemonId,
   onRemove,
@@ -833,6 +839,10 @@ function LocalDirectoryRow({
           </TooltipContent>
         </Tooltip>
       )}
+      <select aria-label={t(($) => $.resources.scope)} value={ref.scope ?? "all"} onChange={(e) => onScopeChange(e.target.value === "chat" ? "chat" : "all")} className="rounded-md border bg-background px-1 py-0.5 text-caption">
+        <option value="all">{t(($) => $.resources.scope_all)}</option>
+        <option value="chat">{t(($) => $.resources.scope_chat)}</option>
+      </select>
       {/* Not gated on `mismatch`: switching the mode only rewrites a field, so
           it works from the web app or another device, unlike the folder
           picker. */}

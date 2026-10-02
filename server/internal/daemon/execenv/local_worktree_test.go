@@ -1166,6 +1166,7 @@ func TestLocalWorktreeConversation(t *testing.T) {
 	}{
 		{"issue identifier names the branch, issue id owns it", PrepareParams{IssueIdentifier: "MUL-6881", Task: TaskContextForEnv{IssueID: issueID}}, "MUL-6881", issueID},
 		{"issue without an identifier", PrepareParams{Task: TaskContextForEnv{IssueID: issueID}}, taskKey(issueID), issueID},
+		{"mixed task keeps chat branch", PrepareParams{IssueIdentifier: "QORA-1", Task: TaskContextForEnv{IssueID: issueID, ChatSessionID: chatID}}, "chat-" + taskKey(chatID), chatID},
 		{"chat session", PrepareParams{Task: TaskContextForEnv{ChatSessionID: chatID}}, "chat-" + taskKey(chatID), chatID},
 		{"neither", PrepareParams{}, "", ""},
 	}

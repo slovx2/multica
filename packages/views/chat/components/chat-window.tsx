@@ -1,5 +1,7 @@
 "use client";
 
+import { ChatCards } from "./chat-cards";
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
@@ -87,6 +89,7 @@ import {
   seedAcceptedPendingTask,
 } from "./use-chat-controller";
 import { useChatProjectContextSupport } from "./use-chat-project-context-support";
+import { useChatDraftProjectContext } from "./use-chat-draft-project-context";
 import { createLogger } from "@multica/core/logger";
 import type { Agent, Attachment, ChatMessage, ChatSession, PendingChatTasksResponse } from "@multica/core/types";
 import { useLocale, useT } from "../../i18n";
@@ -231,6 +234,8 @@ export function ChatWindow() {
     if (projects.some((project) => project.id === selectedProjectId)) return;
     setSelectedProjectId(null);
   }, [projectsLoaded, projects, selectedProjectId, setSelectedProjectId]);
+
+  const routeProjectId = useChatDraftProjectContext(isOpen, activeSessionId, setSelectedProjectId);
 
   const qc = useQueryClient();
   const createSession = useCreateChatSession();
@@ -405,6 +410,7 @@ export function ChatWindow() {
             agent_id: activeAgent.id,
             title: titleSeed.slice(0, 50),
             project_id: activeProjectId,
+            plan_mode: useChatStore.getState().draftPlanMode,
           });
           return session.id;
         } finally {
@@ -682,12 +688,13 @@ export function ChatWindow() {
       previousSessionId: activeSessionId,
       previousPendingTask: pendingTaskId,
     });
-    setSelectedProjectId(null);
+    setSelectedProjectId(routeProjectId);
     setActiveSession(null);
     requestInputFocus();
   }, [
     activeSessionId,
     pendingTaskId,
+    routeProjectId,
     setSelectedProjectId,
     setActiveSession,
     requestInputFocus,
@@ -996,7 +1003,10 @@ export function ChatWindow() {
       {/* Input — disabled for legacy archived sessions and for sessions whose
        *  agent has been archived (read-only); locked out entirely when there's
        *  no agent (the EmptyState above carries the CTA). */}
+      <ChatCards sessionId={activeSessionId ?? null} disabled={isAgentAccessRevoked || isAgentArchived} />
       <ChatInput
+        runtimeId={activeAgent?.runtime_id}
+        sessionId={activeSessionId ?? null}
         onSend={handleSend}
         restoreDraftRequest={restoreDraftRequest}
         conversationStarterRequest={conversationStarterRequest}

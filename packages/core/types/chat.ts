@@ -84,6 +84,7 @@ export interface ChatChannelSource {
 }
 
 export interface ChatSession {
+  plan_mode?: boolean;
   id: string;
   workspace_id: string;
   agent_id: string;
