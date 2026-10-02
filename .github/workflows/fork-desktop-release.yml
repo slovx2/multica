@@ -1,0 +1,125 @@
+# Fork-only desktop packaging for slovx2/multica (upstream has no such file).
+#
+# Version scheme: tags are vX.Y.Z.N, where X.Y.Z is the upstream release the
+# fork is based on and N is the fork build number. Desktop and
+# electron-updater require semver, so CI maps the tag to a local vX.Y.Z-N tag
+# before package.mjs derives the version via `git describe`; the installers
+# therefore carry version X.Y.Z-N.
+#
+# Installers are unsigned and not notarized (macOS gets an ad-hoc signature).
+# The update feed points at this fork so installed apps are never replaced
+# by official upstream releases.
+name: Fork Desktop Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Fork release tag, e.g. v0.6.1.1 (must already exist)"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-desktop-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      semver: ${{ steps.meta.outputs.semver }}
+    steps:
+      - name: Validate tag
+        id: meta
+        shell: bash
+        run: |
+          tag="${{ inputs.tag }}"
+          if [[ ! "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::tag must look like vX.Y.Z.N; got '$tag'"
+            exit 1
+          fi
+          echo "semver=${BASH_REMATCH[1]}-${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          tag="${{ inputs.tag }}"
+          if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $tag already exists; reusing it"
+          else
+            gh release create "$tag" -R "$GITHUB_REPOSITORY" --verify-tag \
+              --title "$tag" \
+              --notes "Fork build $tag (desktop version ${{ steps.meta.outputs.semver }}). Installers are unsigned and not notarized."
+          fi
+
+  desktop:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: mac
+          - os: windows-latest
+            target: win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+
+      - name: Map tag to semver for git describe
+        shell: bash
+        run: |
+          git tag -d "${{ inputs.tag }}"
+          git tag "v${{ needs.prepare.outputs.semver }}" HEAD
+          git describe --tags --match 'v[0-9]*' --always --dirty
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          check-latest: true
+          cache-dependency-path: server/go.sum
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Package Desktop installers (${{ matrix.target }})
+        working-directory: apps/desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        shell: bash
+        run: |
+          extra=()
+          if [[ "${{ matrix.target }}" == "mac" ]]; then
+            # Ad-hoc sign; an unsigned app is reported as "damaged" on Apple Silicon.
+            extra+=("-c.mac.identity=-")
+          fi
+          node scripts/package.mjs --${{ matrix.target }} --x64 --arm64 --publish never \
+            -c.publish.owner=slovx2 "${extra[@]}"
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(apps/desktop/dist/*/*.{dmg,zip,exe,blockmap} apps/desktop/dist/*/latest*.yml)
+          printf '%s\n' "${files[@]}"
+          gh release upload "${{ inputs.tag }}" -R "$GITHUB_REPOSITORY" --clobber "${files[@]}"
