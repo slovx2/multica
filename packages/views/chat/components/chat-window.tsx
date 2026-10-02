@@ -89,6 +89,7 @@ import {
   seedAcceptedPendingTask,
 } from "./use-chat-controller";
 import { useChatProjectContextSupport } from "./use-chat-project-context-support";
+import { useChatDraftProjectContext } from "./use-chat-draft-project-context";
 import { createLogger } from "@multica/core/logger";
 import type { Agent, Attachment, ChatMessage, ChatSession, PendingChatTasksResponse } from "@multica/core/types";
 import { useLocale, useT } from "../../i18n";
@@ -233,6 +234,8 @@ export function ChatWindow() {
     if (projects.some((project) => project.id === selectedProjectId)) return;
     setSelectedProjectId(null);
   }, [projectsLoaded, projects, selectedProjectId, setSelectedProjectId]);
+
+  const routeProjectId = useChatDraftProjectContext(isOpen, activeSessionId, setSelectedProjectId);
 
   const qc = useQueryClient();
   const createSession = useCreateChatSession();
@@ -685,12 +688,13 @@ export function ChatWindow() {
       previousSessionId: activeSessionId,
       previousPendingTask: pendingTaskId,
     });
-    setSelectedProjectId(null);
+    setSelectedProjectId(routeProjectId);
     setActiveSession(null);
     requestInputFocus();
   }, [
     activeSessionId,
     pendingTaskId,
+    routeProjectId,
     setSelectedProjectId,
     setActiveSession,
     requestInputFocus,

@@ -4733,7 +4733,11 @@ func (s *TaskService) writeChatCompletionOutcome(ctx context.Context, qtx *db.Qu
 		if loadErr != nil {
 			return nil, loadErr
 		}
-		body = fmt.Sprintf("Planning follow-up for [%s](mention://issue/%s). Open the issue comments for the outcome.", issue.Title, util.UUIDToString(issue.ID))
+		workspace, loadErr := qtx.GetWorkspace(ctx, issue.WorkspaceID)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		body = fmt.Sprintf("Mentioned in [%s](mention://issue/%s) — replied on the issue.", IssueIdentifier(workspace.IssuePrefix, issue.Number), util.UUIDToString(issue.ID))
 		isEmpty = false
 	}
 
