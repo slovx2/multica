@@ -1,0 +1,32 @@
+{
+  "probe-claude": {
+    "implemented.txt": "Color: Blue\nMarker: ORCHID-73\n",
+    "mock-issues.jsonl": null,
+    "bypass.txt": null,
+    "resumed.txt": null
+  },
+  "probe-claude-extra": {
+    "implemented.txt": null,
+    "mock-issues.jsonl": "[\"issue\", \"create\", \"--title\", \"PLAN_SPIKE_ONLY\"]\n",
+    "bypass.txt": "IRIS-92\n",
+    "resumed.txt": null
+  },
+  "probe-codex-v2": {
+    "implemented.txt": "Color: Blue\nStyle: Verbose\nMarker: ORCHID-73\n",
+    "mock-issues.jsonl": null,
+    "bypass.txt": null,
+    "resumed.txt": null
+  },
+  "probe-codex-extra": {
+    "implemented.txt": null,
+    "mock-issues.jsonl": "[\"issue\", \"create\", \"--title\", \"PLAN_SPIKE_ONLY\"]\n",
+    "bypass.txt": null,
+    "resumed.txt": "Red\nIRIS-92\n"
+  },
+  "claude-plan-after-primary-suite": {
+    "filename": "we-are-planning-a-optimized-sparkle.md",
+    "request_contains_quiet": false,
+    "file_contains_quiet": true,
+    "text": "# 彩色问候 CLI 实施计划（标记：ORCHID-73）\n\n## 背景\n用户需要一个简单的彩色问候 CLI，已选定颜色：**Blue**。\n\n## 方案\n- 语言：Python（使用 uv 管理，`pyproject.toml` 中依赖写精确版本；本方案不引入第三方依赖，直接用 ANSI 转义码 `\\033[34m` … `\\033[0m`）。\n- 文件：\n  - `pyproject.toml`：项目元数据，`[project.scripts] greet = \"greet:main\"`\n  - `greet.py`：\n    - `def colorize(text: str) -> str`：用蓝色 ANSI 码包裹文本\n    - `def main(argv: list[str] | None = None) -> None`：argparse 解析可选参数 `name`（默认 `World`），输出蓝色 `Hello, <name>!`\n    - 新增 `--quiet` / `-q` 开关（`action=\"store_true\"`）：开启时不向 stdout 输出任何内容，直接返回\n- `test_greet.py`（使用 pytest，在 `pyproject.toml` 的 dev 依赖中写精确版本，如 `pytest==8.4.2`）：\n  - `test_default_blue`：`main([])` 输出等于 `\"\\033[34mHello, World!\\033[0m\\n\"`\n  - `test_quiet_no_stdout`：`main([\"--quiet\"])` 后 `capsys.readouterr().out == \"\"`\n- 带类型标注，中文注释。\n\n## 验证\n- `uv run python greet.py` → 蓝色输出 `Hello, World!`\n- `uv run python greet.py Alice` → 蓝色输出 `Hello, Alice!`\n- `uv run python greet.py | cat -v` 确认含 `^[[34m` 与 `^[[0m`\n- `uv run python greet.py --quiet` → 无任何 stdout 输出\n- `uv run pytest -q` → 全部通过\n"
+  }
+}

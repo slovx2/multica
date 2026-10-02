@@ -1,0 +1,190 @@
+{
+  "source": {
+    "cli": "codex-cli 0.157.1",
+    "command": "codex app-server generate-json-schema --experimental --out ./codex-schema"
+  },
+  "CollaborationMode": {
+    "description": "Collaboration mode for a Codex session.",
+    "properties": {
+      "mode": {
+        "$ref": "#/definitions/ModeKind"
+      },
+      "settings": {
+        "$ref": "#/definitions/Settings"
+      }
+    },
+    "required": [
+      "mode",
+      "settings"
+    ],
+    "type": "object"
+  },
+  "Settings": {
+    "description": "Settings for a collaboration mode.",
+    "properties": {
+      "developer_instructions": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "model": {
+        "type": "string"
+      },
+      "reasoning_effort": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/ReasoningEffort"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "required": [
+      "model"
+    ],
+    "type": "object"
+  },
+  "ModeKind": {
+    "description": "Initial collaboration mode to use when the TUI starts.",
+    "enum": [
+      "plan",
+      "default"
+    ],
+    "type": "string"
+  },
+  "ToolRequestUserInputParams": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+      "ToolRequestUserInputOption": {
+        "description": "EXPERIMENTAL. Defines a single selectable option for request_user_input.",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "label"
+        ],
+        "type": "object"
+      },
+      "ToolRequestUserInputQuestion": {
+        "description": "EXPERIMENTAL. Represents one request_user_input question and its required options.",
+        "properties": {
+          "header": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "isOther": {
+            "default": false,
+            "type": "boolean"
+          },
+          "isSecret": {
+            "default": false,
+            "type": "boolean"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/definitions/ToolRequestUserInputOption"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "question": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "header",
+          "id",
+          "question"
+        ],
+        "type": "object"
+      }
+    },
+    "description": "EXPERIMENTAL. Params sent with a request_user_input event.",
+    "properties": {
+      "autoResolutionMs": {
+        "default": null,
+        "description": "@deprecated Use `isBlocking` to decide whether the request should block.",
+        "format": "uint64",
+        "minimum": 0.0,
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "isBlocking": {
+        "type": "boolean"
+      },
+      "itemId": {
+        "type": "string"
+      },
+      "questions": {
+        "items": {
+          "$ref": "#/definitions/ToolRequestUserInputQuestion"
+        },
+        "type": "array"
+      },
+      "threadId": {
+        "type": "string"
+      },
+      "turnId": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "isBlocking",
+      "itemId",
+      "questions",
+      "threadId",
+      "turnId"
+    ],
+    "title": "ToolRequestUserInputParams",
+    "type": "object"
+  },
+  "ToolRequestUserInputResponse": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+      "ToolRequestUserInputAnswer": {
+        "description": "EXPERIMENTAL. Captures a user's answer to a request_user_input question.",
+        "properties": {
+          "answers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "answers"
+        ],
+        "type": "object"
+      }
+    },
+    "description": "EXPERIMENTAL. Response payload mapping question ids to answers.",
+    "properties": {
+      "answers": {
+        "additionalProperties": {
+          "$ref": "#/definitions/ToolRequestUserInputAnswer"
+        },
+        "type": "object"
+      }
+    },
+    "required": [
+      "answers"
+    ],
+    "title": "ToolRequestUserInputResponse",
+    "type": "object"
+  }
+}

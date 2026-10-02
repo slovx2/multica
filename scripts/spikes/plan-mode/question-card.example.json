@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "id": "question-card-generated-id",
+  "kind": "user_question",
+  "title": "需要确认输出方式",
+  "status": "pending",
+  "continuation": "new_turn",
+  "source": {
+    "provider": "codex",
+    "conversation_id": "native-thread-id",
+    "turn_id": "native-turn-id",
+    "item_id": "native-item-id",
+    "request_id": 0,
+    "is_blocking": true
+  },
+  "questions": [
+    {
+      "id": "q0",
+      "native_id": "output_style",
+      "native_index": 0,
+      "header": "Style",
+      "text": "Which output style do you prefer?",
+      "selection_mode": "single",
+      "options": [
+        {"id": "o0", "label": "Compact", "description": "One line."},
+        {"id": "o1", "label": "Verbose", "description": "Extra detail."}
+      ],
+      "free_text": {"allowed": true, "secret": false},
+      "required": true
+    }
+  ],
+  "answers": null
+}
