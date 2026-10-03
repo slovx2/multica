@@ -5,6 +5,9 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   main: {
+    define: {
+      "process.env.MULTICA_FORK_DESKTOP": JSON.stringify(process.env.MULTICA_FORK_DESKTOP ?? ""),
+    },
     plugins: [externalizeDepsPlugin()],
   },
   preload: {
