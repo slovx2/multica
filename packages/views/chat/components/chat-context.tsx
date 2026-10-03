@@ -85,8 +85,7 @@ export function CompactContextDialog({
   const wsId = useWorkspaceId();
   const qc = useQueryClient();
   const compact = useMutation({
-    mutationFn: () =>
-      api.sendChatMessage(sessionId, "", undefined, undefined, "compact"),
+    mutationFn: () => api.compactChatContext(sessionId),
     onSuccess: () => {
       onOpenChange(false);
       void qc.invalidateQueries({ queryKey: chatKeys.all(wsId) });

@@ -3,8 +3,12 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"reflect"
 	"testing"
+	"time"
 
+	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/testutil"
 	"github.com/multica-ai/multica/server/pkg/chatconfig"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -12,13 +16,31 @@ import (
 
 func TestChatContextReportScopeAndPersistence(t *testing.T) {
 	_, sessionID, taskID, daemonID := planningFixtureRows(t, "claude")
+	// Use a private synchronous bus to inspect the actual producer event.
+	h := *testHandler
+	h.Bus = events.New()
+	var updates []events.Event
+	h.Bus.Subscribe(protocol.EventChatSessionUpdated, func(e events.Event) { updates = append(updates, e) })
 	report := func(body any, status int) {
 		t.Helper()
 		req := withURLParam(newDaemonTokenRequest("POST", "/context", body, testWorkspaceID, daemonID), "taskId", taskID)
-		testutil.Call(t, testHandler.ReportChatContext, req).Want(status)
+		testutil.Call(t, h.ReportChatContext, req).Want(status)
 	}
 	report(map[string]any{"usage": map[string]int{"used": 420000, "window": 1000000}}, 200)
 	report(map[string]any{"compaction": map[string]string{"status": "started"}}, 200)
+	report(map[string]any{"compaction": map[string]string{"status": "completed"}}, 200)
+	if len(updates) != 3 {
+		t.Fatalf("updates = %d, want usage/start/completed", len(updates))
+	}
+	for _, e := range updates {
+		if e.ActorType != "member" || e.ActorID != testUserID || e.WorkspaceID != testWorkspaceID || e.ChatSessionID != sessionID {
+			t.Fatalf("context event must route privately to the creator: %+v", e)
+		}
+		payload, ok := e.Payload.(map[string]any)
+		if !ok || payload["context_changed"] != true || payload["chat_session_id"] != sessionID {
+			t.Fatalf("missing context invalidation: %+v", e.Payload)
+		}
+	}
 	var session ChatSessionResponse
 	req := withChatTestWorkspaceCtx(t, withURLParam(newRequest("GET", "/chat", nil), "sessionId", sessionID))
 	testutil.Call(t, testHandler.GetChatSession, req).Want(200).JSON(&session)
@@ -96,9 +118,52 @@ func TestChatDirectorySyncHeartbeatFlow(t *testing.T) {
 	report := withURLParam(newDaemonTokenRequest("POST", "/sync", map[string]any{"id": request.ID, "result": map[string]any{"status": "updated", "updated": 3, "ahead": 0, "behind": 0}}, testWorkspaceID, daemonID), "runtimeId", uuidToString(carrier.RuntimeID))
 	testutil.Call(t, testHandler.ReportChatDirectorySync, report).Want(200)
 	get := withChatTestWorkspaceCtx(t, withURLParams(newRequest("GET", "/sync", nil), "sessionId", sessionID, "syncId", request.ID))
-	var result struct{ Status string }
+	var result map[string]any
 	testutil.Call(t, testHandler.GetChatDirectorySync, get).Want(200).JSON(&result)
-	if result.Status != "completed" {
-		t.Fatal(result)
+	assertChatContextContract(t, "sync", result, "id")
+}
+
+func TestChatCompactHTTPResponseContract(t *testing.T) {
+	_, sessionID, _, _ := planningFixtureRows(t, "codex")
+	req := withChatTestWorkspaceCtx(t, withURLParam(newRequest("POST", "/messages", map[string]any{"action": "compact", "content": ""}), "sessionId", sessionID))
+	var response map[string]any
+	testutil.Call(t, testHandler.SendChatMessage, req).Want(201).JSON(&response)
+	taskID, ok := response["task_id"].(string)
+	if !ok || taskID == "" {
+		t.Fatalf("missing queued task id: %+v", response)
+	}
+	dbfx.Cleanup(t, "DELETE FROM agent_task_queue WHERE id=$1", taskID)
+	if dbfx.Count(t, "SELECT count(*) FROM chat_message WHERE task_id=$1", taskID) != 0 {
+		t.Fatal("compact wrote a chat message")
+	}
+	assertChatContextContract(t, "compact", response, "task_id")
+}
+
+// The API client tests consume this same fixture. Normalize only generated IDs
+// and timestamps so incompatible wire types (including base64 JSON) fail here.
+func assertChatContextContract(t *testing.T, name string, got map[string]any, idKey string) {
+	t.Helper()
+	data, err := os.ReadFile("testdata/chat-context-contract.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixtures map[string]map[string]any
+	if err := json.Unmarshal(data, &fixtures); err != nil {
+		t.Fatal(err)
+	}
+	want := fixtures[name]
+	if id, ok := got[idKey].(string); !ok || id == "" {
+		t.Fatalf("missing %s: %+v", idKey, got)
+	}
+	stamp, ok := got["created_at"].(string)
+	if !ok {
+		t.Fatalf("missing timestamp: %+v", got)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, stamp); err != nil {
+		t.Fatal(err)
+	}
+	got[idKey], got["created_at"] = want[idKey], want["created_at"]
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("%s wire contract: got %#v want %#v", name, got, want)
 	}
 }

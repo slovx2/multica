@@ -2141,6 +2141,14 @@ export const SendChatMessageResponseSchema: z.ZodType<SendChatMessageResponse> =
   attachment_ids: z.array(z.string()).nullish().transform((ids) => ids ?? undefined),
 }).loose();
 
+// Control actions enqueue a task without creating a chat_message row.
+export const SendChatActionResponseSchema = z.object({
+  task_id: z.string().min(1),
+  supports_queue: z.boolean().optional(),
+  queued: z.boolean().optional(),
+  created_at: z.string().min(1),
+});
+
 // `started` is the only field the flow branches on, and a malformed response
 // must not be read as "the opening landed" — parseWithFallback's fallback says
 // it did not, which leaves the flow's own retry as the recovery path.

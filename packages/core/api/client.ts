@@ -1,5 +1,5 @@
 import type { ChatExecutionOverrides, DirectorySyncResult } from "../types/chat";
-import { DirectorySyncRequestSchema, DirectorySyncStatusSchema } from "./schemas";
+import { DirectorySyncRequestSchema, DirectorySyncStatusSchema, SendChatActionResponseSchema } from "./schemas";
 import { planningLinksSchema, type PlanningLink, chatCardsSchema, type CardDecision, type ChatCard } from "./planning-schema";
 import type { ZodType } from "zod";
 import type { IssueWakeup, IssueWakeupInput, IssueWakeupSummaryRow, PausedWakeup, SystemWakeup, WakeupRun, WorkspaceSystemWakeup } from "../types/issue-wakeup";
@@ -3831,19 +3831,30 @@ export class ApiClient {
     return result;
   }
 
+  async compactChatContext(sessionId: string) {
+    const raw = await this.fetch<unknown>(`/api/chat/sessions/${sessionId}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ action: "compact" }),
+    });
+    const response = parseWithFallback<Pick<SendChatMessageResponse, "task_id" | "supports_queue" | "queued" | "created_at"> | null>(
+      raw, SendChatActionResponseSchema, null,
+      { endpoint: "POST /api/chat/sessions/:id/messages (compact)" },
+    );
+    if (!response) throw new Error("invalid chat action response");
+    return response;
+  }
+
   async sendChatMessage(
     sessionId: string,
     content: string,
     attachmentIds?: string[],
     cardDecision?: CardDecision,
-    action?: "compact",
   ): Promise<SendChatMessageResponse> {
     const body: {
       content: string;
       attachment_ids?: string[];
       card_decision?: CardDecision;
-      action?: "compact";
-    } = { content, card_decision: cardDecision, action };
+    } = { content, card_decision: cardDecision };
     if (attachmentIds && attachmentIds.length > 0) {
       body.attachment_ids = attachmentIds;
     }

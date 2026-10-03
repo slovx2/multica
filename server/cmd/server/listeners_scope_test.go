@@ -75,6 +75,37 @@ type scopeCall struct {
 	scopeType, scopeID string
 	msg                []byte
 }
+
+func TestRegisterListeners_ChatSessionContextUpdateGoesOnlyToCreator(t *testing.T) {
+	bus := events.New()
+	fb := &fakeBroadcaster{}
+	registerListeners(bus, fb)
+	bus.Publish(events.Event{
+		Type: protocol.EventChatSessionUpdated, WorkspaceID: "ws-1",
+		ActorType: "member", ActorID: "creator-1", ChatSessionID: "chat-1",
+		Payload: map[string]any{"chat_session_id": "chat-1", "context_changed": true},
+	})
+	if len(fb.workspaceCalls) != 0 || fb.broadcastCalled != 0 || len(fb.scopeCalls) != 0 {
+		t.Fatal("private context update reached a shared scope")
+	}
+	if len(fb.userCalls) != 1 || fb.userCalls[0].userID != "creator-1" {
+		t.Fatalf("creator fanout = %+v", fb.userCalls)
+	}
+	var frame struct {
+		Type    string `json:"type"`
+		Payload struct {
+			ChatSessionID  string `json:"chat_session_id"`
+			ContextChanged bool   `json:"context_changed"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(fb.userCalls[0].msg, &frame); err != nil {
+		t.Fatal(err)
+	}
+	if frame.Type != protocol.EventChatSessionUpdated || frame.Payload.ChatSessionID != "chat-1" || !frame.Payload.ContextChanged {
+		t.Fatalf("lost context refresh in WS frame: %+v", frame)
+	}
+}
+
 type workspaceCall struct {
 	workspaceID string
 	msg         []byte

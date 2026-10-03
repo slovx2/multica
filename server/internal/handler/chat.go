@@ -919,6 +919,14 @@ type SendChatMessageResponse struct {
 	CreatedAt string `json:"created_at"`
 }
 
+// Chat actions create a task, but do not create a chat message.
+type SendChatActionResponse struct {
+	TaskID        string `json:"task_id"`
+	SupportsQueue bool   `json:"supports_queue"`
+	Queued        bool   `json:"queued"`
+	CreatedAt     string `json:"created_at"`
+}
+
 func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
@@ -1011,7 +1019,7 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusCreated, SendChatMessageResponse{TaskID: uuidToString(sent.Task.ID), SupportsQueue: true, Queued: sent.Queued, CreatedAt: timestampToString(sent.Task.CreatedAt)})
+		writeJSON(w, http.StatusCreated, SendChatActionResponse{TaskID: uuidToString(sent.Task.ID), SupportsQueue: true, Queued: sent.Queued, CreatedAt: timestampToString(sent.Task.CreatedAt)})
 		return
 	}
 	// Detect whether this is the very first human message in the session,

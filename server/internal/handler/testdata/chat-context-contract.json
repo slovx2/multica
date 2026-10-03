@@ -1,0 +1,14 @@
+{
+  "compact": {
+    "task_id": "task-id",
+    "supports_queue": true,
+    "queued": true,
+    "created_at": "2026-10-03T00:00:00Z"
+  },
+  "sync": {
+    "id": "sync-id",
+    "status": "completed",
+    "result": { "status": "updated", "updated": 3, "ahead": 0, "behind": 0 },
+    "created_at": "2026-10-03T00:00:00Z"
+  }
+}

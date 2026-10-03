@@ -1,6 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useId } from "react";
 import { Check, ListChecks, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@multica/core/api";
@@ -134,6 +135,7 @@ export function ChatSettingsMenu({
   onCompact?: () => void;
 }) {
   const { t } = useT("chat");
+  const compactUnsupportedId = useId();
   if (!settings) return null;
   const { plan, overrides, levels, tiers, disabled, setPlan, setOverrides } =
     settings;
@@ -155,15 +157,20 @@ export function ChatSettingsMenu({
   return (
     <>
       {onCompact && (
-        <DropdownMenuItem
-          disabled={disabled || !settings.sessionId || !settings.supportsPlan}
-          title={
-            !settings.supportsPlan ? t(($) => $.context.unsupported) : undefined
-          }
-          onClick={onCompact}
-        >
-          {t(($) => $.context.compact)}
-        </DropdownMenuItem>
+        <>
+          <DropdownMenuItem
+            disabled={disabled || !settings.sessionId || !settings.supportsPlan}
+            aria-describedby={!settings.supportsPlan ? compactUnsupportedId : undefined}
+            onClick={onCompact}
+          >
+            {t(($) => $.context.compact)}
+          </DropdownMenuItem>
+          {!settings.supportsPlan && (
+            <p id={compactUnsupportedId} className="max-w-64 px-2 py-1 text-caption text-muted-foreground">
+              {t(($) => $.context.unsupported)}
+            </p>
+          )}
+        </>
       )}
       {includePlan && (
         <DropdownMenuItem

@@ -82,7 +82,8 @@ func (h *Handler) ReportChatContext(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "failed to save context")
 		return
 	}
-	h.publishChat(protocol.EventChatSessionUpdated, uuidToString(cs.WorkspaceID), "system", "", uuidToString(cs.ID), map[string]any{"chat_session_id": uuidToString(cs.ID), "context_changed": true})
+	// Session updates are routed privately using ActorID as the recipient.
+	h.publishChat(protocol.EventChatSessionUpdated, uuidToString(cs.WorkspaceID), "member", uuidToString(cs.CreatorID), uuidToString(cs.ID), map[string]any{"chat_session_id": uuidToString(cs.ID), "context_changed": true})
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
@@ -164,7 +165,12 @@ func (h *Handler) GetChatDirectorySync(w http.ResponseWriter, r *http.Request) {
 	if result.Status != "completed" && time.Since(result.CreatedAt.Time) > time.Minute {
 		result.Status = "timeout"
 	}
-	writeJSON(w, 200, result)
+	writeJSON(w, 200, struct {
+		ID        string          `json:"id"`
+		Status    string          `json:"status"`
+		Result    json.RawMessage `json:"result"`
+		CreatedAt string          `json:"created_at"`
+	}{uuidToString(result.ID), result.Status, json.RawMessage(result.Result), timestampToString(result.CreatedAt)})
 }
 
 func (h *Handler) ReportChatDirectorySync(w http.ResponseWriter, r *http.Request) {

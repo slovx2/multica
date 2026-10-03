@@ -205,7 +205,7 @@ describe("chat session settings", () => {
     await openMenu();
     const item = await screen.findByRole("menuitem", {name:"Compact context"});
     expect(item).toHaveAttribute("aria-disabled", "true");
-    expect(item).toHaveAttribute("title", enChat.context.unsupported);
+    expect(screen.getByText(enChat.context.unsupported)).toBeVisible();
   });
 
   it("clears the draft overrides when moving to another chat", () => {

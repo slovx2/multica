@@ -303,6 +303,25 @@ describe("applyChatSessionUpdatedToCache", () => {
 });
 
 describe("invalidateChatMessageQueries", () => {
+  it("refetches active native context after a session context event", async () => {
+    const qc = createQueryClient();
+    const key = chatKeys.session("ws-context", sessionId);
+    const before = { id: sessionId, context_state: {} };
+    const after = { id: sessionId, context_state: { compaction: { status: "completed" } } };
+    qc.setQueryData(key, before);
+    const fetchSession = vi.fn().mockResolvedValue(after);
+    const observer = new QueryObserver(qc, { queryKey: key, queryFn: fetchSession, staleTime: Infinity });
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      applyChatSessionUpdatedToCache(qc, "ws-context", { chat_session_id: sessionId, context_changed: true });
+      await vi.waitFor(() => expect(qc.getQueryData(key)).toEqual(after));
+      expect(fetchSession).toHaveBeenCalledTimes(1);
+    } finally {
+      unsubscribe();
+      qc.clear();
+    }
+  });
+
   it("invalidates both legacy and paged chat message caches", () => {
     const qc = createQueryClient();
     const invalidate = vi.spyOn(qc, "invalidateQueries");

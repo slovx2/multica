@@ -13,7 +13,7 @@ import enChat from "../../locales/en/chat.json";
 import type { ReactNode } from "react";
 
 const { send } = vi.hoisted(() => ({ send: vi.fn() }));
-vi.mock("@multica/core/api", () => ({ api: { sendChatMessage: send } }));
+vi.mock("@multica/core/api", () => ({ api: { compactChatContext: send } }));
 vi.mock("@multica/core/hooks", () => ({ useWorkspaceId: () => "workspace" }));
 function mount(children: ReactNode) {
   return render(
@@ -107,10 +107,6 @@ describe("native chat context", () => {
     await waitFor(() =>
       expect(send).toHaveBeenCalledWith(
         "session",
-        "",
-        undefined,
-        undefined,
-        "compact",
       ),
     );
     expect(close).not.toHaveBeenCalled();
