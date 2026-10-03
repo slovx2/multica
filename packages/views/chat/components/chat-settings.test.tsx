@@ -15,16 +15,18 @@ import {
   registerChatStore,
 } from "@multica/core/chat";
 import {
-  ChatSettings,
+  useChatSessionSettings,
   ChatSettingsTags,
   ChatSettingsMenu,
 } from "./chat-settings";
 import { ChatAddMenu } from "./chat-add-menu";
 import enChat from "../../locales/en/chat.json";
+import enAgents from "../../locales/en/agents.json";
 import enCommon from "../../locales/en/common.json";
 
 const mocks = vi.hoisted(() => ({
   provider: "codex",
+  standard: true,
   update: vi.fn(),
   get: vi.fn(),
   updateAgent: vi.fn(),
@@ -50,6 +52,7 @@ vi.mock("@multica/core/runtimes", () => ({
       models: [
         {
           id: "gpt-test",
+          supports_explicit_standard_service_tier: mocks.standard,
           thinking: { supported_levels: [{ value: "high", label: "High" }] },
           service_tiers: [{ id: "priority", name: "Fast" }],
         },
@@ -58,6 +61,14 @@ vi.mock("@multica/core/runtimes", () => ({
   }),
 }));
 
+function SettingsHarness({ sessionId, model, enabled = true }: { sessionId: string | null; model: string; enabled?: boolean }) {
+  const settings = useChatSessionSettings({ enabled, sessionId, runtimeId: "rt", model });
+  return <>
+    <div data-testid="tags"><ChatSettingsTags settings={settings} /></div>
+    <ChatAddMenu extraItems={<ChatSettingsMenu settings={settings} />} />
+  </>;
+}
+
 function mount(sessionId: string | null = null, model = "gpt-test") {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -65,21 +76,10 @@ function mount(sessionId: string | null = null, model = "gpt-test") {
   return render(
     <I18nProvider
       locale="en"
-      resources={{ en: { chat: enChat, common: enCommon } }}
+      resources={{ en: { chat: enChat, common: enCommon, agents: enAgents } }}
     >
       <QueryClientProvider client={qc}>
-        <ChatSettings sessionId={sessionId} runtimeId="rt" model={model}>
-          {(settings) => (
-            <>
-              <div data-testid="tags">
-                <ChatSettingsTags settings={settings} />
-              </div>
-              <ChatAddMenu
-                extraItems={<ChatSettingsMenu settings={settings} />}
-              />
-            </>
-          )}
-        </ChatSettings>
+        <SettingsHarness sessionId={sessionId} model={model} />
       </QueryClientProvider>
     </I18nProvider>,
   );
@@ -96,6 +96,7 @@ describe("chat session settings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.provider = "codex";
+    mocks.standard = true;
     registerChatStore(
       createChatStore({
         storage: {
@@ -120,6 +121,8 @@ describe("chat session settings", () => {
     expect(
       await screen.findByRole("button", { name: "Exit plan" }),
     ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Plan" }));
+    expect(useChatStore.getState().draftPlanMode).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Exit plan" }));
     expect(screen.getByTestId("tags")).toBeEmptyDOMElement();
   });
@@ -135,7 +138,7 @@ describe("chat session settings", () => {
       thinking_level: "high",
     });
     await openMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Service tier" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Service tier" }));
     expect(
       await screen.findByRole("menuitem", { name: "Default (inherit)" }),
     ).toBeInTheDocument();
@@ -149,6 +152,15 @@ describe("chat session settings", () => {
     );
     expect(useChatStore.getState().draftExecutionOverrides).toEqual({});
     expect(mocks.updateAgent).not.toHaveBeenCalled();
+  });
+
+  it("omits explicit Standard when the CLI does not advertise support", async () => {
+    mocks.standard = false;
+    mount();
+    await openMenu();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Service tier" }));
+    expect(await screen.findByRole("menuitem", { name: "Fast" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Standard" })).not.toBeInTheDocument();
   });
 
   it.each([

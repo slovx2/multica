@@ -1,6 +1,6 @@
 "use client";
 
-import { ChatSettings, ChatSettingsMenu, ChatSettingsTags } from "./chat-settings";
+import { useChatSessionSettings, ChatSettingsMenu, ChatSettingsTags } from "./chat-settings";
 
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -613,209 +613,200 @@ export function ChatInput({
     !isProjectUpdating;
   const selectedProject = projects.find((project) => project.id === projectId);
 
+  const settings = useChatSessionSettings({
+    enabled: sessionId !== undefined,
+    sessionId,
+    runtimeId,
+    model,
+    disabled: disabled || noAgent || isRunning || submitting,
+  });
+
   return (
-    <ChatSettings
-      sessionId={sessionId}
-      runtimeId={runtimeId}
-      model={model}
-      disabled={disabled || noAgent || isRunning || submitting}
+    <div
+      ref={composerRef}
+      className={cn(
+        // The composer grows with the draft up to half the surface it sits on
+        // — a fixed 160px cap made long drafts unreadable in a five-line
+        // porthole (MUL-5196). `max-h-[50%]` resolves against the chat
+        // surface (floating window, chat tab, agent builder), all of which
+        // give this wrapper a definite height, so the cap scales when the
+        // user resizes or expands the window. The wrapper must be a flex
+        // column for the card below to shrink into that cap instead of
+        // spilling out of it.
+        "flex max-h-[50%] min-h-0 flex-col pb-3 pt-0",
+        CHAT_GUTTER,
+        // Static elevation, NOT queue-conditional: ChatQueue tucks its bottom
+        // edge under this surface (z-0 + negative margin on its side), and the
+        // composer simply always paints on top. Its own chrome never varies.
+        "relative z-10",
+        // Outer wrapper carries the disabled cursor. Inner card sets
+        // pointer-events-none, which suppresses hover (and therefore
+        // any cursor of its own) — splitting the two layers lets hover
+        // bubble back here so the browser actually reads cursor.
+        noAgent && "cursor-not-allowed",
+      )}
     >
-      {(settings) => (
-        <div
-          ref={composerRef}
-          className={cn(
-            // The composer grows with the draft up to half the surface it sits on
-            // — a fixed 160px cap made long drafts unreadable in a five-line
-            // porthole (MUL-5196). `max-h-[50%]` resolves against the chat
-            // surface (floating window, chat tab, agent builder), all of which
-            // give this wrapper a definite height, so the cap scales when the
-            // user resizes or expands the window. The wrapper must be a flex
-            // column for the card below to shrink into that cap instead of
-            // spilling out of it.
-            "flex max-h-[50%] min-h-0 flex-col pb-3 pt-0",
-            CHAT_GUTTER,
-            // Static elevation, NOT queue-conditional: ChatQueue tucks its bottom
-            // edge under this surface (z-0 + negative margin on its side), and the
-            // composer simply always paints on top. Its own chrome never varies.
-            "relative z-10",
-            // Outer wrapper carries the disabled cursor. Inner card sets
-            // pointer-events-none, which suppresses hover (and therefore
-            // any cursor of its own) — splitting the two layers lets hover
-            // bubble back here so the browser actually reads cursor.
-            noAgent && "cursor-not-allowed",
-          )}
-        >
+      <div
+        data-slot="chat-input-surface"
+        {...(uploadEnabled ? dropZoneProps : {})}
+        className={cn(
+          // max-h-96 is the absolute ceiling on top of the wrapper's 50%: on a
+          // tall surface half the height is more composer than anyone reads at
+          // once, and it keeps the cap finite if a future host ever mounts the
+          // composer without a definite height (percentage max-height would
+          // then resolve to none).
+          CHAT_COLUMN,
+          "relative flex min-h-16 max-h-96 flex-col rounded-lg border border-surface-border bg-surface pb-9 transition-[border-color,box-shadow] focus-within:border-brand focus-within:ring-2 focus-within:ring-ring/20",
+          // Visual + interaction lock when there's no agent. We don't
+          // toggle ContentEditor's editable mode (Tiptap can't switch
+          // cleanly post-mount, and the prop has been removed); instead
+          // we drop pointer events at the wrapper level so clicks miss
+          // the editor entirely, and dim the surface so it reads as
+          // "disabled" rather than "broken".
+          noAgent && "pointer-events-none opacity-60",
+        )}
+        aria-disabled={noAgent || undefined}
+      >
+        {(onProjectChange || sessionId !== undefined) && (
           <div
-            data-slot="chat-input-surface"
-            {...(uploadEnabled ? dropZoneProps : {})}
-            className={cn(
-              // max-h-96 is the absolute ceiling on top of the wrapper's 50%: on a
-              // tall surface half the height is more composer than anyone reads at
-              // once, and it keeps the cap finite if a future host ever mounts the
-              // composer without a definite height (percentage max-height would
-              // then resolve to none).
-              CHAT_COLUMN,
-              "relative flex min-h-16 max-h-96 flex-col rounded-lg border border-surface-border bg-surface pb-9 transition-[border-color,box-shadow] focus-within:border-brand focus-within:ring-2 focus-within:ring-ring/20",
-              // Visual + interaction lock when there's no agent. We don't
-              // toggle ContentEditor's editable mode (Tiptap can't switch
-              // cleanly post-mount, and the prop has been removed); instead
-              // we drop pointer events at the wrapper level so clicks miss
-              // the editor entirely, and dim the surface so it reads as
-              // "disabled" rather than "broken".
-              noAgent && "pointer-events-none opacity-60",
-            )}
-            aria-disabled={noAgent || undefined}
+            data-slot="chat-context-tags"
+            className="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden px-3 pt-2 empty:hidden"
           >
-            {(onProjectChange || sessionId !== undefined) && (
-              <div
-                data-slot="chat-context-tags"
-                className="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden px-3 pt-2 empty:hidden"
-              >
-                {onProjectChange && (
-                  <>
-                    <div
-                      className={cn(
-                        "inline-flex min-w-0 max-w-56 shrink",
-                        !projectSelectionEnabled &&
-                          "pointer-events-none opacity-60",
-                      )}
-                    >
-                      <ProjectPicker
-                        projectId={selectedProject?.id ?? null}
-                        onUpdate={(updates) =>
-                          onProjectChange?.(updates.project_id ?? null)
-                        }
+            {onProjectChange && (
+              <>
+                <div
+                  className={cn(
+                    "inline-flex min-w-0 max-w-56 shrink",
+                    !projectSelectionEnabled &&
+                      "pointer-events-none opacity-60",
+                  )}
+                >
+                  <ProjectPicker
+                    projectId={selectedProject?.id ?? null}
+                    onUpdate={(updates) =>
+                      onProjectChange?.(updates.project_id ?? null)
+                    }
+                    disabled={!projectSelectionEnabled}
+                    triggerRender={
+                      <ClearablePillButton
                         disabled={!projectSelectionEnabled}
-                        triggerRender={
-                          <ClearablePillButton
-                            disabled={!projectSelectionEnabled}
-                            aria-label={t(($) => $.input.change_project_context)}
-                            title={t(($) => $.input.change_project_context)}
-                            onClear={() => onProjectChange?.(null)}
-                            clearLabel={t(($) => $.input.remove_project_context)}
-                            className="h-6 border-surface-border bg-surface-raised font-medium text-foreground"
-                          />
-                        }
+                        aria-label={t(($) => $.input.change_project_context)}
+                        title={t(($) => $.input.change_project_context)}
+                        onClear={() => onProjectChange?.(null)}
+                        clearLabel={t(($) => $.input.remove_project_context)}
+                        className="h-6 border-surface-border bg-surface-raised font-medium text-foreground"
                       />
-                    </div>
-                    {projectContextUnsupported && (
-                      <span
-                        title={t(($) => $.input.project_context_unsupported)}
-                        className="inline-flex min-w-0 items-center gap-1 text-caption text-warning"
-                      >
-                        <TriangleAlert className="size-3 shrink-0" />
-                        <span className="truncate">
-                          {t(($) => $.input.project_context_unsupported)}
-                        </span>
-                      </span>
-                    )}
-                  </>
+                    }
+                  />
+                </div>
+                {projectContextUnsupported && (
+                  <span
+                    title={t(($) => $.input.project_context_unsupported)}
+                    className="inline-flex min-w-0 items-center gap-1 text-caption text-warning"
+                  >
+                    <TriangleAlert className="size-3 shrink-0" />
+                    <span className="truncate">
+                      {t(($) => $.input.project_context_unsupported)}
+                    </span>
+                  </span>
                 )}
-                <ChatSettingsTags settings={settings} />
-              </div>
+              </>
             )}
-            <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
-              <ContentEditor
-                // See the editorKey / draftKey split note above — editor identity
-                // intentionally tracks neither the session nor the agent.
-                key={editorKey}
-                ref={editorRef}
-                value={inputDraft}
-                placeholder={placeholder}
-                onUpdate={(md) => {
-                  setIsEmpty(!md.trim());
-                  // The LOADED key, not the selected one: while an upload pins the
-                  // document this fires for the source draft's body — including the
-                  // upload's own completion dispatch.
-                  commitDraft(editorDraftKeyRef.current, md);
-                }}
-                onSubmit={submit}
-                onUploadFile={uploadEnabled ? handleUpload : undefined}
-                pasteAsFileThreshold={PASTE_AS_FILE_THRESHOLD}
-                onUploadingChange={uploadGate.onUploadingChange}
-                attachments={draftAttachments}
-                debounceMs={100}
-                mentionMode={contextItems ? "context" : "default"}
-                mentionContextItems={contextItems}
-                enableSlashCommands
-                // The bubble menu carries the only affordance that can strip
-                // formatting — "Normal text" (setParagraph) plus the mark/list
-                // toggles. Once a `# ` input rule or a Markdown/HTML paste turns a
-                // line into a heading, chat has no other way to remove it, so
-                // without the bubble menu formatting can be created but never
-                // undone (MUL-5106).
-                showBubbleMenu
-              />
-            </div>
+            <ChatSettingsTags settings={settings} />
+          </div>
+        )}
+        <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
+          <ContentEditor
+            // See the editorKey / draftKey split note above — editor identity
+            // intentionally tracks neither the session nor the agent.
+            key={editorKey}
+            ref={editorRef}
+            value={inputDraft}
+            placeholder={placeholder}
+            onUpdate={(md) => {
+              setIsEmpty(!md.trim());
+              // The LOADED key, not the selected one: while an upload pins the
+              // document this fires for the source draft's body — including the
+              // upload's own completion dispatch.
+              commitDraft(editorDraftKeyRef.current, md);
+            }}
+            onSubmit={submit}
+            onUploadFile={uploadEnabled ? handleUpload : undefined}
+            pasteAsFileThreshold={PASTE_AS_FILE_THRESHOLD}
+            onUploadingChange={uploadGate.onUploadingChange}
+            attachments={draftAttachments}
+            debounceMs={100}
+            mentionMode={contextItems ? "context" : "default"}
+            mentionContextItems={contextItems}
+            enableSlashCommands
+            // The bubble menu carries the only affordance that can strip
+            // formatting — "Normal text" (setParagraph) plus the mark/list
+            // toggles. Once a `# ` input rule or a Markdown/HTML paste turns a
+            // line into a heading, chat has no other way to remove it, so
+            // without the bubble menu formatting can be created but never
+            // undone (MUL-5106).
+            showBubbleMenu
+          />
+        </div>
+        {(uploadEnabled ||
+          projectSelectionEnabled ||
+          sessionId !== undefined ||
+          leftAdornment) && (
+          <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1">
             {(uploadEnabled ||
               projectSelectionEnabled ||
-              sessionId !== undefined ||
-              leftAdornment) && (
-              <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1">
-                {(uploadEnabled ||
-                  projectSelectionEnabled ||
-                  sessionId !== undefined) && (
-                  <ChatAddMenu
-                    extraItems={<ChatSettingsMenu settings={settings} />}
-                    disabled={disabled || noAgent || submitting}
-                    onSelectFile={
-                      uploadEnabled
-                        ? (file) => editorRef.current?.uploadFile(file)
-                        : undefined
-                    }
-                    projects={projects}
-                    projectId={projectId}
-                    onSelectProject={undefined}
-                    projectContextUnsupported={projectContextUnsupported}
-                  />
-                )}
-                {sessionId && <ChatPlanningIssues key={sessionId} sessionId={sessionId} />}
-                {leftAdornment}
-              </div>
-            )}
-            <div className="absolute bottom-1 right-1.5 flex items-center gap-1">
-              <SubmitButton
-                onClick={submit}
-                disabled={
-                  hasNothingToSend || submitting || !!disabled || !!noAgent
-                }
-                loading={submitting}
-                busy={gate.uploading}
-                // Queue-capable runs reuse this one action slot: an empty composer
-                // offers Stop, while live content swaps it to Queue Send. Older
-                // servers cannot accept follow-ups, so they remain stop-only. An
-                // upload blocks submit, so it also falls back to Stop rather than
-                // removing chat's only cancellation path; the attachment node
-                // remains the visible upload-progress surface in the editor.
-                running={
-                  !!isRunning &&
-                  (!allowSubmitWhileRunning || hasNothingToSend || gate.uploading)
-                }
-                onStop={onStop}
-                tooltip={
-                  gate.uploading
-                    ? tEditor(($) => $.upload.in_progress)
-                    : isRunning
-                      ? t(($) => $.input.queue_send_tooltip)
-                      : sendShortcut
-                        ? `${t(($) => $.input.send_tooltip)} · ${formatShortcut(sendShortcut)}`
-                        : t(($) => $.input.send_tooltip)
-                }
-                ariaLabel={
-                  gate.uploading
-                    ? tEditor(($) => $.upload.in_progress)
-                    : isRunning
-                      ? t(($) => $.input.queue_send_tooltip)
-                      : t(($) => $.input.send_tooltip)
-                }
-                stopTooltip={t(($) => $.input.stop_tooltip)}
-                stopAriaLabel={t(($) => $.input.stop_tooltip)}
+              sessionId !== undefined) && (
+              <ChatAddMenu
+                extraItems={<ChatSettingsMenu settings={settings} />}
+                disabled={disabled || noAgent || submitting}
+                onSelectFile={uploadEnabled
+                  ? (file) => editorRef.current?.uploadFile(file)
+                  : undefined}
+                projects={projects}
+                projectId={projectId}
+                onSelectProject={undefined}
+                projectContextUnsupported={projectContextUnsupported}
               />
-            </div>
-            {uploadEnabled && isDragOver && <FileDropOverlay />}
+            )}
+            {sessionId && <ChatPlanningIssues key={sessionId} sessionId={sessionId} />}
+            {leftAdornment}
           </div>
+        )}
+        <div className="absolute bottom-1 right-1.5 flex items-center gap-1">
+          <SubmitButton
+            onClick={submit}
+            disabled={hasNothingToSend || submitting || !!disabled || !!noAgent}
+            loading={submitting}
+            busy={gate.uploading}
+            // Queue-capable runs reuse this one action slot: an empty composer
+            // offers Stop, while live content swaps it to Queue Send. Older
+            // servers cannot accept follow-ups, so they remain stop-only. An
+            // upload blocks submit, so it also falls back to Stop rather than
+            // removing chat's only cancellation path; the attachment node
+            // remains the visible upload-progress surface in the editor.
+            running={
+              !!isRunning &&
+              (!allowSubmitWhileRunning || hasNothingToSend || gate.uploading)
+            }
+            onStop={onStop}
+            tooltip={gate.uploading
+              ? tEditor(($) => $.upload.in_progress)
+              : isRunning
+                ? t(($) => $.input.queue_send_tooltip)
+                : sendShortcut
+                  ? `${t(($) => $.input.send_tooltip)} · ${formatShortcut(sendShortcut)}`
+                  : t(($) => $.input.send_tooltip)}
+            ariaLabel={gate.uploading
+              ? tEditor(($) => $.upload.in_progress)
+              : isRunning
+                ? t(($) => $.input.queue_send_tooltip)
+              : t(($) => $.input.send_tooltip)}
+            stopTooltip={t(($) => $.input.stop_tooltip)}
+            stopAriaLabel={t(($) => $.input.stop_tooltip)}
+          />
         </div>
-      )}
-    </ChatSettings>
+        {uploadEnabled && isDragOver && <FileDropOverlay />}
+      </div>
+    </div>
   );
 }

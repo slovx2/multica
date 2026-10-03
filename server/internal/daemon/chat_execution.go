@@ -3,6 +3,7 @@ package daemon
 import (
 	"log/slog"
 	"strings"
+	"sync/atomic"
 
 	"github.com/multica-ai/multica/server/pkg/agent"
 	"github.com/multica-ai/multica/server/pkg/chatconfig"
@@ -37,7 +38,8 @@ func applyChatExecutionOverrides(sel taskModelSelection, overrides chatconfig.Ov
 
 // Retry only a rejected option before any output or tool activity. Retrying a
 // partially executed turn could duplicate user-visible or external actions.
-func executeWithChatOverrideFallback(opts *agent.ExecOptions, selection taskModelSelection, execute func(agent.ExecOptions) (agent.Result, int32, error), logger *slog.Logger) (agent.Result, int32, error) {
+func executeWithChatOverrideFallback(opts *agent.ExecOptions, selection taskModelSelection, msgSeq *atomic.Int32, execute func(agent.ExecOptions) (agent.Result, int32, error), logger *slog.Logger) (agent.Result, int32, error) {
+	beforeSeq := msgSeq.Load()
 	result, tools, err := execute(*opts)
 	changedThinking := opts.ThinkingLevel != selection.FallbackThinkingLevel
 	changedTier := opts.ServiceTier != selection.FallbackServiceTier
@@ -48,7 +50,7 @@ func executeWithChatOverrideFallback(opts *agent.ExecOptions, selection taskMode
 	if err != nil {
 		message += " " + err.Error()
 	}
-	if tools != 0 || result.Output != "" || (err == nil && result.Status != "failed") || !unsupportedChatOption(message, changedThinking, changedTier) {
+	if msgSeq.Load() != beforeSeq || tools != 0 || result.Output != "" || (err == nil && result.Status != "failed") || !unsupportedChatOption(message, changedThinking, changedTier) {
 		return result, tools, err
 	}
 	logger.Warn("runtime rejected chat execution overrides; retrying with agent configuration", "error", message)
@@ -57,6 +59,8 @@ func executeWithChatOverrideFallback(opts *agent.ExecOptions, selection taskMode
 }
 
 func unsupportedChatOption(message string, thinking, tier bool) bool {
+	// Match parameter names, never generic thinking/reasoning content (for
+	// example an invalid signature in a streamed thinking block).
 	message = strings.ToLower(message)
 	rejected := false
 	for _, term := range []string{"unsupported", "not supported", "does not support", "invalid", "unknown", "unrecognized", "unexpected argument", "not available", "not allowed", "not enabled", "not eligible"} {
@@ -69,7 +73,7 @@ func unsupportedChatOption(message string, thinking, tier bool) bool {
 		return true
 	}
 	if thinking {
-		for _, term := range []string{"reasoning", "thinking", "effort", "--variant"} {
+		for _, term := range []string{"reasoning_effort", "reasoning effort", "thinking_level", "thinking level", "--effort", "--variant"} {
 			if strings.Contains(message, term) {
 				return true
 			}

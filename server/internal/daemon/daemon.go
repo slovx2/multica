@@ -8802,7 +8802,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	execute := func(options agent.ExecOptions) (agent.Result, int32, error) {
 		return d.executeAndDrain(ctx, backend, prompt, options, taskLog, task.ID, env.CodexHome, &msgSeq)
 	}
-	result, tools, err := executeWithChatOverrideFallback(&execOpts, selection, execute, taskLog)
+	result, tools, err := executeWithChatOverrideFallback(&execOpts, selection, &msgSeq, execute, taskLog)
 	if err != nil {
 		return TaskResult{}, err
 	}

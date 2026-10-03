@@ -1,6 +1,5 @@
 "use client";
 
-import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ListChecks, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
@@ -31,14 +30,17 @@ interface SettingsProps {
   runtimeId?: string;
   model?: string;
   disabled?: boolean;
-  children: (settings: ChatSettingsState | null) => ReactNode;
+  enabled: boolean;
 }
 
-function useSettings({ sessionId, runtimeId, model, disabled }: SettingsProps) {
+export function useChatSessionSettings({
+  enabled, sessionId, runtimeId, model, disabled,
+}: SettingsProps) {
+  const { t: tAgents } = useT("agents");
   const wsId = useWorkspaceId();
   const qc = useQueryClient();
-  const runtimes = useQuery(runtimeListOptions(wsId));
-  const runtime = runtimes.data?.find((r) => r.id === runtimeId);
+  const runtimes = useQuery({ ...runtimeListOptions(wsId), enabled });
+  const runtime = enabled ? runtimes.data?.find((r) => r.id === runtimeId) : undefined;
   const catalog = useQuery(
     runtimeModelsOptions(runtime?.status === "online" ? runtimeId : null),
   );
@@ -49,12 +51,17 @@ function useSettings({ sessionId, runtimeId, model, disabled }: SettingsProps) {
     provider,
   );
   const levels = entry?.thinking?.supported_levels ?? [];
+  const supportsExplicitStandard = catalog.data?.models.some(
+    (candidate) => candidate.supports_explicit_standard_service_tier === true,
+  );
   const tiers =
     provider === "codex" &&
     entry?.id.startsWith("gpt-") &&
     entry.service_tiers?.length
       ? [
-          { id: "default", name: "Standard" },
+          ...(supportsExplicitStandard
+            ? [{ id: "default", name: tAgents(($) => $.pickers.service_tier_standard) }]
+            : []),
           ...entry.service_tiers.filter((tier) => tier.id !== "default"),
         ]
       : [];
@@ -63,7 +70,7 @@ function useSettings({ sessionId, runtimeId, model, disabled }: SettingsProps) {
   const session = useQuery({
     queryKey: chatKeys.session(wsId, sessionId ?? ""),
     queryFn: () => api.getChatSession(sessionId!),
-    enabled: !!sessionId,
+    enabled: enabled && !!sessionId,
   });
   const update = useMutation({
     mutationFn: (
@@ -77,6 +84,7 @@ function useSettings({ sessionId, runtimeId, model, disabled }: SettingsProps) {
     },
     onError: (error: Error) => toast.error(error.message),
   });
+  if (!enabled) return null;
   return {
     plan: sessionId ? session.data?.plan_mode === true : draftPlanMode,
     overrides:
@@ -96,18 +104,7 @@ function useSettings({ sessionId, runtimeId, model, disabled }: SettingsProps) {
   };
 }
 
-type ChatSettingsState = ReturnType<typeof useSettings>;
-
-export function ChatSettings(props: SettingsProps) {
-  // Embedded composers without session ownership keep their existing surface.
-  if (props.sessionId === undefined) return props.children(null);
-  return <SessionSettings {...props} />;
-}
-
-function SessionSettings(props: SettingsProps) {
-  const settings = useSettings(props);
-  return props.children(settings);
-}
+type ChatSettingsState = NonNullable<ReturnType<typeof useChatSessionSettings>>;
 
 export function ChatSettingsMenu({
   settings,
@@ -204,7 +201,6 @@ export function ChatSettingsTags({
         <ClearablePillButton
           className="h-6 shrink-0 border-brand text-brand"
           disabled={disabled}
-          onClick={() => setPlan(false)}
           onClear={() => setPlan(false)}
           clearLabel={t(($) => $.execution.exit_plan)}
         >

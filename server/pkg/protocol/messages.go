@@ -8,11 +8,12 @@ import (
 
 const (
 	DaemonCapabilityChatExecutionOverridesV1 = "chat-execution-overrides-v1"
-	DaemonCapabilitySkillBundlesV1           = "skill-bundles-v1"
-	DaemonCapabilityCoalescedCommentsV1      = "coalesced-comments-v1"
-	DaemonCapabilityExecutionManifestV1      = "execution-manifest-v1"
-	DaemonCapabilityAgentSkillV1             = "agent-skill-v1"
-	DaemonCapabilityRemoteMCPV1              = "remote-mcp-v1"
+
+	DaemonCapabilitySkillBundlesV1      = "skill-bundles-v1"
+	DaemonCapabilityCoalescedCommentsV1 = "coalesced-comments-v1"
+	DaemonCapabilityExecutionManifestV1 = "execution-manifest-v1"
+	DaemonCapabilityAgentSkillV1        = "agent-skill-v1"
+	DaemonCapabilityRemoteMCPV1         = "remote-mcp-v1"
 	// DaemonCapabilityLocalWorktreeV1 advertises that the daemon implements
 	// worktree mode for local_directory resources (execution_mode=worktree).
 	//
@@ -385,9 +386,10 @@ type ChatSessionDeletedPayload struct {
 // without a full refetch.
 type ChatSessionUpdatedPayload struct {
 	ExecutionOverrides *chatconfig.Overrides `json:"execution_overrides,omitempty"`
-	PlanMode           *bool                 `json:"plan_mode,omitempty"`
-	ChatSessionID      string                `json:"chat_session_id"`
-	Title              string                `json:"title"`
+
+	PlanMode      *bool  `json:"plan_mode,omitempty"`
+	ChatSessionID string `json:"chat_session_id"`
+	Title         string `json:"title"`
 	// ProjectID is set only by the project-context update path. The double
 	// pointer distinguishes an omitted field from an explicit JSON null.
 	ProjectID **string `json:"project_id,omitempty"`

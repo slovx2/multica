@@ -35,10 +35,11 @@ const chatSessionTitleMaxLen = 200
 
 type CreateChatSessionRequest struct {
 	ExecutionOverrides chatconfig.Overrides `json:"execution_overrides"`
-	PlanMode           bool                 `json:"plan_mode"`
-	AgentID            string               `json:"agent_id"`
-	Title              string               `json:"title"`
-	ProjectID          *string              `json:"project_id"`
+
+	PlanMode  bool    `json:"plan_mode"`
+	AgentID   string  `json:"agent_id"`
+	Title     string  `json:"title"`
+	ProjectID *string `json:"project_id"`
 }
 
 func (h *Handler) CreateChatSession(w http.ResponseWriter, r *http.Request) {
@@ -218,21 +219,22 @@ func (h *Handler) ListChatSessions(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			resp = append(resp, ChatSessionResponse{
-				ID:                 uuidToString(s.ID),
-				WorkspaceID:        uuidToString(s.WorkspaceID),
-				AgentID:            uuidToString(s.AgentID),
-				CreatorID:          uuidToString(s.CreatorID),
-				ProjectID:          uuidToPtr(s.ProjectID),
-				PlanMode:           s.PlanMode,
+				ID:          uuidToString(s.ID),
+				WorkspaceID: uuidToString(s.WorkspaceID),
+				AgentID:     uuidToString(s.AgentID),
+				CreatorID:   uuidToString(s.CreatorID),
+				ProjectID:   uuidToPtr(s.ProjectID),
+				PlanMode:    s.PlanMode,
+				Title:       s.Title,
+				Status:      s.Status,
+				HasUnread:   s.UnreadCount > 0,
+				UnreadCount: int(s.UnreadCount),
+				LastMessage: buildChatLastMessage(s.LastMessageAt, s.LastMessageContent, s.LastMessageRole, s.LastMessageFailureReason, s.LastMessageKind),
+				Pinned:      s.PinnedAt.Valid,
+				CreatedAt:   timestampToString(s.CreatedAt),
+				UpdatedAt:   timestampToString(s.UpdatedAt),
+
 				ExecutionOverrides: chatconfig.Decode(s.ExecutionOverrides),
-				Title:              s.Title,
-				Status:             s.Status,
-				HasUnread:          s.UnreadCount > 0,
-				UnreadCount:        int(s.UnreadCount),
-				LastMessage:        buildChatLastMessage(s.LastMessageAt, s.LastMessageContent, s.LastMessageRole, s.LastMessageFailureReason, s.LastMessageKind),
-				Pinned:             s.PinnedAt.Valid,
-				CreatedAt:          timestampToString(s.CreatedAt),
-				UpdatedAt:          timestampToString(s.UpdatedAt),
 			})
 		}
 	} else {
@@ -250,21 +252,22 @@ func (h *Handler) ListChatSessions(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			resp = append(resp, ChatSessionResponse{
-				ID:                 uuidToString(s.ID),
-				WorkspaceID:        uuidToString(s.WorkspaceID),
-				AgentID:            uuidToString(s.AgentID),
-				CreatorID:          uuidToString(s.CreatorID),
-				ProjectID:          uuidToPtr(s.ProjectID),
-				PlanMode:           s.PlanMode,
+				ID:          uuidToString(s.ID),
+				WorkspaceID: uuidToString(s.WorkspaceID),
+				AgentID:     uuidToString(s.AgentID),
+				CreatorID:   uuidToString(s.CreatorID),
+				ProjectID:   uuidToPtr(s.ProjectID),
+				PlanMode:    s.PlanMode,
+				Title:       s.Title,
+				Status:      s.Status,
+				HasUnread:   s.UnreadCount > 0,
+				UnreadCount: int(s.UnreadCount),
+				LastMessage: buildChatLastMessage(s.LastMessageAt, s.LastMessageContent, s.LastMessageRole, s.LastMessageFailureReason, s.LastMessageKind),
+				Pinned:      s.PinnedAt.Valid,
+				CreatedAt:   timestampToString(s.CreatedAt),
+				UpdatedAt:   timestampToString(s.UpdatedAt),
+
 				ExecutionOverrides: chatconfig.Decode(s.ExecutionOverrides),
-				Title:              s.Title,
-				Status:             s.Status,
-				HasUnread:          s.UnreadCount > 0,
-				UnreadCount:        int(s.UnreadCount),
-				LastMessage:        buildChatLastMessage(s.LastMessageAt, s.LastMessageContent, s.LastMessageRole, s.LastMessageFailureReason, s.LastMessageKind),
-				Pinned:             s.PinnedAt.Valid,
-				CreatedAt:          timestampToString(s.CreatedAt),
-				UpdatedAt:          timestampToString(s.UpdatedAt),
 			})
 		}
 	}
@@ -370,9 +373,10 @@ func (h *Handler) GetChatSession(w http.ResponseWriter, r *http.Request) {
 
 type UpdateChatSessionRequest struct {
 	ExecutionOverrides *chatconfig.Overrides `json:"execution_overrides"`
-	PlanMode           *bool                 `json:"plan_mode"`
-	Title              *string               `json:"title"`
-	ProjectID          json.RawMessage       `json:"project_id"`
+
+	PlanMode  *bool           `json:"plan_mode"`
+	Title     *string         `json:"title"`
+	ProjectID json.RawMessage `json:"project_id"`
 }
 
 // UpdateChatSession updates one user-editable field on a chat session. Title
@@ -503,10 +507,11 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 	resolvedSessionID := uuidToString(updated.ID)
 	payload := protocol.ChatSessionUpdatedPayload{
 		ExecutionOverrides: req.ExecutionOverrides,
-		PlanMode:           req.PlanMode,
-		ChatSessionID:      resolvedSessionID,
-		Title:              updated.Title,
-		UpdatedAt:          timestampToString(updated.UpdatedAt),
+
+		PlanMode:      req.PlanMode,
+		ChatSessionID: resolvedSessionID,
+		Title:         updated.Title,
+		UpdatedAt:     timestampToString(updated.UpdatedAt),
 	}
 	if projectIDChanged {
 		projectID := uuidToPtr(updated.ProjectID)
@@ -2008,14 +2013,15 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 
 type ChatSessionResponse struct {
 	ExecutionOverrides chatconfig.Overrides `json:"execution_overrides"`
-	PlanMode           bool                 `json:"plan_mode"`
-	ID                 string               `json:"id"`
-	WorkspaceID        string               `json:"workspace_id"`
-	AgentID            string               `json:"agent_id"`
-	CreatorID          string               `json:"creator_id"`
-	ProjectID          *string              `json:"project_id"`
-	Title              string               `json:"title"`
-	Status             string               `json:"status"`
+
+	PlanMode    bool    `json:"plan_mode"`
+	ID          string  `json:"id"`
+	WorkspaceID string  `json:"workspace_id"`
+	AgentID     string  `json:"agent_id"`
+	CreatorID   string  `json:"creator_id"`
+	ProjectID   *string `json:"project_id"`
+	Title       string  `json:"title"`
+	Status      string  `json:"status"`
 	// Only populated by list endpoints — single-session fetches return 0/false/nil.
 	// HasUnread is kept as a convenience (== UnreadCount > 0) for existing consumers.
 	HasUnread   bool             `json:"has_unread"`
@@ -2126,18 +2132,19 @@ type ChatMessageResponse struct {
 
 func chatSessionToResponse(s db.ChatSession) ChatSessionResponse {
 	return ChatSessionResponse{
-		ID:                 uuidToString(s.ID),
-		WorkspaceID:        uuidToString(s.WorkspaceID),
-		AgentID:            uuidToString(s.AgentID),
-		CreatorID:          uuidToString(s.CreatorID),
-		ProjectID:          uuidToPtr(s.ProjectID),
-		PlanMode:           s.PlanMode,
+		ID:          uuidToString(s.ID),
+		WorkspaceID: uuidToString(s.WorkspaceID),
+		AgentID:     uuidToString(s.AgentID),
+		CreatorID:   uuidToString(s.CreatorID),
+		ProjectID:   uuidToPtr(s.ProjectID),
+		PlanMode:    s.PlanMode,
+		Title:       s.Title,
+		Status:      s.Status,
+		Pinned:      s.PinnedAt.Valid,
+		CreatedAt:   timestampToString(s.CreatedAt),
+		UpdatedAt:   timestampToString(s.UpdatedAt),
+
 		ExecutionOverrides: chatconfig.Decode(s.ExecutionOverrides),
-		Title:              s.Title,
-		Status:             s.Status,
-		Pinned:             s.PinnedAt.Valid,
-		CreatedAt:          timestampToString(s.CreatedAt),
-		UpdatedAt:          timestampToString(s.UpdatedAt),
 	}
 }
 
