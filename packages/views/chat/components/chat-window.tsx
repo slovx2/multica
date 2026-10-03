@@ -411,6 +411,7 @@ export function ChatWindow() {
             title: titleSeed.slice(0, 50),
             project_id: activeProjectId,
             plan_mode: useChatStore.getState().draftPlanMode,
+            execution_overrides: useChatStore.getState().draftExecutionOverrides,
           });
           return session.id;
         } finally {
@@ -1006,6 +1007,7 @@ export function ChatWindow() {
       <ChatCards sessionId={activeSessionId ?? null} disabled={isAgentAccessRevoked || isAgentArchived} />
       <ChatInput
         runtimeId={activeAgent?.runtime_id}
+        model={activeAgent?.model}
         sessionId={activeSessionId ?? null}
         onSend={handleSend}
         restoreDraftRequest={restoreDraftRequest}

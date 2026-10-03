@@ -31,6 +31,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/pkg/agent"
+	"github.com/multica-ai/multica/server/pkg/chatconfig"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/dbid"
 	"github.com/multica-ai/multica/server/pkg/planning"
@@ -3072,6 +3073,20 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 		}
 		if resp.PlanMode && !planning.Supported(runtime.Provider) {
 			return resp, deliveredCommentIDs, issueSnapshot, agentSkillCount, builtinSkillCount, h.failClaimedTaskBeforeLaunch(r.Context(), task, "plan mode is supported only by Claude and Codex", taskfailure.ReasonAgentMissingConfig, "unsupported_plan_mode", http.StatusBadRequest, "plan mode is supported only by Claude and Codex")
+		}
+		overrides := chatconfig.Decode(cs.ExecutionOverrides)
+		var snapshot struct {
+			ExecutionOverrides *chatconfig.Overrides `json:"execution_overrides"`
+		}
+		if json.Unmarshal(task.Context, &snapshot) == nil && snapshot.ExecutionOverrides != nil {
+			overrides = *snapshot.ExecutionOverrides
+		}
+		if !overrides.Empty() {
+			if requestHasClientCapability(r, protocol.DaemonCapabilityChatExecutionOverridesV1) {
+				resp.ExecutionOverrides = &overrides
+			} else {
+				slog.Warn("chat execution overrides unsupported by daemon; using agent configuration", "task_id", uuidToString(task.ID))
+			}
 		}
 		resp.ThreadName = cs.Title
 		// Legacy compatibility: agent creation no longer creates intro chats,

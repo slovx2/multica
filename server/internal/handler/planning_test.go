@@ -339,3 +339,50 @@ func TestPlanningMentionFallsBackWhenChatUnavailable(t *testing.T) {
 		})
 	}
 }
+
+func TestPlanningHistoricalCreatedIssues(t *testing.T) {
+	agentID, sessionID, taskID, _ := planningFixtureRows(t, "codex")
+	oldID := dbfx.Issue(t, "Historical completed issue", testutil.Cols{
+		"creator_type": "agent", "creator_id": agentID, "origin_type": "agent_create", "origin_id": taskID,
+		"status": "done", "created_at": testutil.Raw("now() - interval '2 days'"),
+	})
+	newID := dbfx.Issue(t, "Explicitly linked issue")
+	dbfx.Exec(t, "INSERT INTO issue_chat_session (workspace_id, issue_id, chat_session_id) VALUES ($1,$2,$3)", testWorkspaceID, newID, sessionID)
+	// Matching titles or creator alone are never enough to infer a link.
+	dbfx.Issue(t, "Historical completed issue", testutil.Cols{"creator_type": "agent", "creator_id": agentID})
+	dbfx.Issue(t, "Untrusted creator", testutil.Cols{"origin_type": "agent_create", "origin_id": taskID})
+	dbfx.Issue(t, "Wrong origin", testutil.Cols{"creator_type": "agent", "creator_id": agentID, "origin_type": "quick_create", "origin_id": taskID})
+	otherSession := dbfx.Insert(t, "chat_session", testutil.Cols{"workspace_id": testWorkspaceID, "creator_id": testUserID, "agent_id": agentID})
+	var runtimeID string
+	dbfx.QueryRow(t, "SELECT runtime_id FROM agent WHERE id=$1", agentID).Scan(&runtimeID)
+	otherTask := dbfx.Task(t, agentID, testutil.Cols{"runtime_id": runtimeID, "chat_session_id": otherSession})
+	dbfx.Issue(t, "Other chat", testutil.Cols{"creator_type": "agent", "creator_id": agentID, "origin_type": "agent_create", "origin_id": otherTask})
+	list := func(want ...string) {
+		t.Helper()
+		rows, err := testHandler.Queries.ListChatPlanningIssues(context.Background(), db.ListChatPlanningIssuesParams{WorkspaceID: parseUUID(testWorkspaceID), ChatSessionID: parseUUID(sessionID)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) != len(want) {
+			t.Fatalf("got %d issues, want %d", len(rows), len(want))
+		}
+		for i, row := range rows {
+			if uuidToString(row.ID) != want[i] {
+				t.Fatalf("issue %d: got %s want %s", i, uuidToString(row.ID), want[i])
+			}
+		}
+	}
+	list(newID, oldID)
+	// Creation history doesn't enable private-chat mention routing.
+	routes, err := testHandler.Queries.ListIssuePlanningChats(context.Background(), db.ListIssuePlanningChatsParams{WorkspaceID: parseUUID(testWorkspaceID), IssueID: parseUUID(oldID)})
+	if err != nil || len(routes) != 0 {
+		t.Fatalf("historical issue acquired routing: %+v %v", routes, err)
+	}
+	// A later explicit association moves the issue first without duplicating it.
+	dbfx.Exec(t, "INSERT INTO issue_chat_session (workspace_id, issue_id, chat_session_id, created_at) VALUES ($1,$2,$3,now()+interval '1 second')", testWorkspaceID, oldID, sessionID)
+	list(oldID, newID)
+	rows, err := testHandler.Queries.ListChatPlanningIssues(context.Background(), db.ListChatPlanningIssuesParams{WorkspaceID: parseUUID("00000000-0000-0000-0000-000000000099"), ChatSessionID: parseUUID(sessionID)})
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("cross-workspace issue list: %+v %v", rows, err)
+	}
+}

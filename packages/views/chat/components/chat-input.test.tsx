@@ -8,6 +8,11 @@ import enCommon from "../../locales/en/common.json";
 import enChat from "../../locales/en/chat.json";
 import enEditor from "../../locales/en/editor.json";
 
+vi.mock("./chat-settings", async () => ({
+  ...(await vi.importActual<typeof import("./chat-settings")>("./chat-settings")),
+  useChatSessionSettings: () => null,
+}));
+
 // Uploads flow through the module-level coordinator, which calls
 // `api.uploadFile(file, ctx, signal)` (MUL-5181 L2). Tests drive uploads by
 // mocking that call; it resolves a server Attachment row (makeUpload's extra
@@ -607,6 +612,13 @@ describe("ChatInput project context", () => {
         "Project description won't apply — this agent's daemon needs an upgrade",
       ),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps context tags on a single shrinking row", () => {
+    const { container } = renderInput({ projects: [sampleProject], projectId: "project-alpha", onProjectChange: vi.fn() });
+    const row = container.querySelector('[data-slot="chat-context-tags"]');
+    expect(row).toHaveClass("flex-nowrap", "min-w-0", "overflow-hidden");
+    expect(row).not.toHaveClass("flex-wrap");
   });
 
   it("renders the selected project chip and forwards context changes", () => {

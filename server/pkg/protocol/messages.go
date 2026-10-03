@@ -1,8 +1,14 @@
 package protocol
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/multica-ai/multica/server/pkg/chatconfig"
+)
 
 const (
+	DaemonCapabilityChatExecutionOverridesV1 = "chat-execution-overrides-v1"
+
 	DaemonCapabilitySkillBundlesV1      = "skill-bundles-v1"
 	DaemonCapabilityCoalescedCommentsV1 = "coalesced-comments-v1"
 	DaemonCapabilityExecutionManifestV1 = "execution-manifest-v1"
@@ -379,6 +385,8 @@ type ChatSessionDeletedPayload struct {
 // patch the session row in their cached list so the dropdown stays in sync
 // without a full refetch.
 type ChatSessionUpdatedPayload struct {
+	ExecutionOverrides *chatconfig.Overrides `json:"execution_overrides,omitempty"`
+
 	PlanMode      *bool  `json:"plan_mode,omitempty"`
 	ChatSessionID string `json:"chat_session_id"`
 	Title         string `json:"title"`

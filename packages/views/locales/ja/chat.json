@@ -247,7 +247,7 @@
     "unarchive": "アーカイブを解除"
   },
   "planning": {
-    "mode": "計画モード",
+    "mode": "計画",
     "pending": "保留中",
     "approved": "承認済み",
     "rejected": "却下済み",
@@ -260,6 +260,15 @@
     "answer": "回答を送信",
     "links": "計画チャット",
     "issues": "このチャットのタスク",
-    "unsupported": "計画モードは Claude と Codex のみ対応しています。"
+    "unsupported": "計画モードは Claude と Codex のみ対応しています。",
+    "issues_count": "タスク ({{count}})"
+  },
+  "execution": {
+    "parameters": "このチャットの設定",
+    "thinking": "推論レベル",
+    "tier": "サービス階層",
+    "inherit": "デフォルト（継承）",
+    "clear": "チャット設定をクリア",
+    "exit_plan": "計画を終了"
   }
 }

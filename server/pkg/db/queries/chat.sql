@@ -1153,7 +1153,7 @@ SELECT
     sqlc.narg('fire_at')::timestamptz,
     sqlc.narg('channel_context_revision')::bigint,
     COALESCE(sqlc.narg('id')::uuid, gen_random_uuid()),
-    (SELECT jsonb_build_object('plan_mode', cs.plan_mode) FROM chat_session cs WHERE cs.id = $4)
+    (SELECT jsonb_build_object('plan_mode', cs.plan_mode, 'execution_overrides', cs.execution_overrides) FROM chat_session cs WHERE cs.id = $4)
 WHERE lock_task_owner_rows($1, NULL, $2)
 RETURNING *;
 

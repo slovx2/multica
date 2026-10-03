@@ -34,8 +34,23 @@ SELECT cs.* FROM issue_chat_session l JOIN chat_session cs ON cs.id = l.chat_ses
 WHERE l.workspace_id = $1 AND l.issue_id = $2 ORDER BY l.created_at DESC;
 
 -- name: ListChatPlanningIssues :many
-SELECT i.* FROM issue_chat_session l JOIN issue i ON i.id = l.issue_id AND i.workspace_id = l.workspace_id
-WHERE l.workspace_id = $1 AND l.chat_session_id = $2 ORDER BY l.created_at DESC;
+-- Creation provenance predates planning links. Include those historical issues
+-- in the created-issues view without inserting routing associations: unlinking
+-- a planning chat must still stop mention routing, but cannot erase creation.
+WITH related AS (
+    SELECT l.issue_id, l.created_at FROM issue_chat_session l
+    WHERE l.workspace_id = $1 AND l.chat_session_id = $2
+    UNION ALL
+    SELECT i.id, i.created_at FROM issue i
+    JOIN agent_task_queue t ON i.origin_type = 'agent_create' AND i.origin_id = t.id
+    JOIN chat_session cs ON cs.id = t.chat_session_id AND cs.workspace_id = i.workspace_id
+    WHERE i.workspace_id = $1 AND cs.id = $2
+      AND i.creator_type = 'agent' AND i.creator_id = t.agent_id AND cs.agent_id = t.agent_id
+), deduplicated AS (
+    SELECT issue_id, max(created_at) AS linked_at FROM related GROUP BY issue_id
+)
+SELECT i.* FROM deduplicated l JOIN issue i ON i.id = l.issue_id
+WHERE i.workspace_id = $1 ORDER BY l.linked_at DESC, i.id DESC;
 
 -- name: DeleteChatPlanningData :exec
 WITH cards AS (DELETE FROM chat_card WHERE chat_card.chat_session_id = $1 AND chat_card.workspace_id = $2)

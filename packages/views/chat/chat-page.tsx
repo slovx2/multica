@@ -333,6 +333,7 @@ export function ChatPage() {
       <ChatCards sessionId={c.activeSessionId ?? null} disabled={c.isAgentAccessRevoked || c.isAgentArchived} />
       <ChatInput
         runtimeId={c.activeAgent?.runtime_id}
+        model={c.activeAgent?.model}
         sessionId={c.activeSessionId ?? null}
         onSend={c.handleSend}
         restoreDraftRequest={c.restoreDraftRequest}

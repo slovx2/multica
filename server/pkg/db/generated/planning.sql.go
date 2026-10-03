@@ -172,8 +172,20 @@ func (q *Queries) ListChatCards(ctx context.Context, arg ListChatCardsParams) ([
 }
 
 const listChatPlanningIssues = `-- name: ListChatPlanningIssues :many
-SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority, i.assignee_type, i.assignee_id, i.creator_type, i.creator_id, i.parent_issue_id, i.acceptance_criteria, i.context_refs, i.position, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.origin_type, i.origin_id, i.first_executed_at, i.start_date, i.metadata, i.stage, i.properties, i.revision, i.last_activity_at, i.triage_state, i.duplicate_of_issue_id FROM issue_chat_session l JOIN issue i ON i.id = l.issue_id AND i.workspace_id = l.workspace_id
-WHERE l.workspace_id = $1 AND l.chat_session_id = $2 ORDER BY l.created_at DESC
+WITH related AS (
+    SELECT l.issue_id, l.created_at FROM issue_chat_session l
+    WHERE l.workspace_id = $1 AND l.chat_session_id = $2
+    UNION ALL
+    SELECT i.id, i.created_at FROM issue i
+    JOIN agent_task_queue t ON i.origin_type = 'agent_create' AND i.origin_id = t.id
+    JOIN chat_session cs ON cs.id = t.chat_session_id AND cs.workspace_id = i.workspace_id
+    WHERE i.workspace_id = $1 AND cs.id = $2
+      AND i.creator_type = 'agent' AND i.creator_id = t.agent_id AND cs.agent_id = t.agent_id
+), deduplicated AS (
+    SELECT issue_id, max(created_at) AS linked_at FROM related GROUP BY issue_id
+)
+SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority, i.assignee_type, i.assignee_id, i.creator_type, i.creator_id, i.parent_issue_id, i.acceptance_criteria, i.context_refs, i.position, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.origin_type, i.origin_id, i.first_executed_at, i.start_date, i.metadata, i.stage, i.properties, i.revision, i.last_activity_at, i.triage_state, i.duplicate_of_issue_id FROM deduplicated l JOIN issue i ON i.id = l.issue_id
+WHERE i.workspace_id = $1 ORDER BY l.linked_at DESC, i.id DESC
 `
 
 type ListChatPlanningIssuesParams struct {
@@ -181,6 +193,9 @@ type ListChatPlanningIssuesParams struct {
 	ChatSessionID pgtype.UUID `json:"chat_session_id"`
 }
 
+// Creation provenance predates planning links. Include those historical issues
+// in the created-issues view without inserting routing associations: unlinking
+// a planning chat must still stop mention routing, but cannot erase creation.
 func (q *Queries) ListChatPlanningIssues(ctx context.Context, arg ListChatPlanningIssuesParams) ([]Issue, error) {
 	rows, err := q.db.Query(ctx, listChatPlanningIssues, arg.WorkspaceID, arg.ChatSessionID)
 	if err != nil {
@@ -233,7 +248,7 @@ func (q *Queries) ListChatPlanningIssues(ctx context.Context, arg ListChatPlanni
 }
 
 const listIssuePlanningChats = `-- name: ListIssuePlanningChats :many
-SELECT cs.id, cs.workspace_id, cs.agent_id, cs.creator_id, cs.title, cs.session_id, cs.work_dir, cs.status, cs.created_at, cs.updated_at, cs.unread_since, cs.runtime_id, cs.last_read_at, cs.is_agent_intro, cs.pinned_at, cs.project_id, cs.explicitly_created_at, cs.plan_mode FROM issue_chat_session l JOIN chat_session cs ON cs.id = l.chat_session_id AND cs.workspace_id = l.workspace_id
+SELECT cs.id, cs.workspace_id, cs.agent_id, cs.creator_id, cs.title, cs.session_id, cs.work_dir, cs.status, cs.created_at, cs.updated_at, cs.unread_since, cs.runtime_id, cs.last_read_at, cs.is_agent_intro, cs.pinned_at, cs.project_id, cs.explicitly_created_at, cs.plan_mode, cs.execution_overrides FROM issue_chat_session l JOIN chat_session cs ON cs.id = l.chat_session_id AND cs.workspace_id = l.workspace_id
 WHERE l.workspace_id = $1 AND l.issue_id = $2 ORDER BY l.created_at DESC
 `
 
@@ -270,6 +285,7 @@ func (q *Queries) ListIssuePlanningChats(ctx context.Context, arg ListIssuePlann
 			&i.ProjectID,
 			&i.ExplicitlyCreatedAt,
 			&i.PlanMode,
+			&i.ExecutionOverrides,
 		); err != nil {
 			return nil, err
 		}
@@ -355,7 +371,7 @@ func (q *Queries) UnlinkPlanningChat(ctx context.Context, arg UnlinkPlanningChat
 
 const updateChatPlanMode = `-- name: UpdateChatPlanMode :one
 UPDATE chat_session SET plan_mode = $3, updated_at = now()
-WHERE id = $1 AND workspace_id = $2 RETURNING id, workspace_id, agent_id, creator_id, title, session_id, work_dir, status, created_at, updated_at, unread_since, runtime_id, last_read_at, is_agent_intro, pinned_at, project_id, explicitly_created_at, plan_mode
+WHERE id = $1 AND workspace_id = $2 RETURNING id, workspace_id, agent_id, creator_id, title, session_id, work_dir, status, created_at, updated_at, unread_since, runtime_id, last_read_at, is_agent_intro, pinned_at, project_id, explicitly_created_at, plan_mode, execution_overrides
 `
 
 type UpdateChatPlanModeParams struct {
@@ -386,6 +402,7 @@ func (q *Queries) UpdateChatPlanMode(ctx context.Context, arg UpdateChatPlanMode
 		&i.ProjectID,
 		&i.ExplicitlyCreatedAt,
 		&i.PlanMode,
+		&i.ExecutionOverrides,
 	)
 	return i, err
 }

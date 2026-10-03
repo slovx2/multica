@@ -247,7 +247,7 @@
     "unarchive": "取消归档"
   },
   "planning": {
-    "mode": "计划模式",
+    "mode": "计划",
     "pending": "待定",
     "approved": "已同意",
     "rejected": "已驳回",
@@ -260,6 +260,15 @@
     "answer": "发送回答",
     "links": "规划对话",
     "issues": "此对话创建的任务",
-    "unsupported": "计划模式仅支持 Claude 和 Codex。"
+    "unsupported": "计划模式仅支持 Claude 和 Codex。",
+    "issues_count": "任务 ({{count}})"
+  },
+  "execution": {
+    "parameters": "本次聊天参数",
+    "thinking": "推理档位",
+    "tier": "服务等级",
+    "inherit": "默认（继承）",
+    "clear": "清除聊天参数",
+    "exit_plan": "退出计划"
   }
 }

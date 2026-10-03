@@ -251,7 +251,7 @@
     "delete": "Delete chat"
   },
   "planning": {
-    "mode": "Plan mode",
+    "mode": "Plan",
     "pending": "Pending",
     "approved": "Approved",
     "rejected": "Rejected",
@@ -264,6 +264,15 @@
     "answer": "Send answers",
     "links": "Planning chats",
     "issues": "Issues from this chat",
-    "unsupported": "Plan mode is supported only by Claude and Codex."
+    "unsupported": "Plan mode is supported only by Claude and Codex.",
+    "issues_count": "Tasks ({{count}})"
+  },
+  "execution": {
+    "parameters": "Chat parameters",
+    "thinking": "Thinking level",
+    "tier": "Service tier",
+    "inherit": "Default (inherit)",
+    "clear": "Clear chat parameters",
+    "exit_plan": "Exit plan"
   }
 }

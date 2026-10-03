@@ -1,3 +1,4 @@
+import type { ChatExecutionOverrides } from "../types/chat";
 import { planningLinksSchema, type PlanningLink, chatCardsSchema, type CardDecision, type ChatCard } from "./planning-schema";
 import type { ZodType } from "zod";
 import type { IssueWakeup, IssueWakeupInput, IssueWakeupSummaryRow, PausedWakeup, SystemWakeup, WakeupRun, WorkspaceSystemWakeup } from "../types/issue-wakeup";
@@ -3685,6 +3686,7 @@ export class ApiClient {
     data: {
       agent_id: string;
       title?: string;
+      execution_overrides?: ChatExecutionOverrides;
       plan_mode?: boolean;
       project_id?: string | null;
     },
@@ -3724,7 +3726,7 @@ export class ApiClient {
 
   async updateChatSession(
     id: string,
-    data: { title: string } | { project_id: string | null } | { plan_mode: boolean },
+    data: { title: string } | { project_id: string | null } | { plan_mode: boolean } | { execution_overrides: ChatExecutionOverrides },
   ): Promise<ChatSession> {
     const raw: unknown = await this.fetch(`/api/chat/sessions/${id}`, {
       method: "PATCH",

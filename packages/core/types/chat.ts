@@ -1,3 +1,8 @@
+export interface ChatExecutionOverrides {
+  thinking_level?: string;
+  service_tier?: string;
+}
+
 import type { AgentTask } from "./agent";
 
 /** A user's pinned "quick agent" for the Chat list top bar. */
@@ -85,6 +90,7 @@ export interface ChatChannelSource {
 
 export interface ChatSession {
   plan_mode?: boolean;
+  execution_overrides?: ChatExecutionOverrides;
   id: string;
   workspace_id: string;
   agent_id: string;

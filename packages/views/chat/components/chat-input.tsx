@@ -1,6 +1,6 @@
 "use client";
 
-import { ChatPlanMode } from "./chat-plan-mode";
+import { useChatSessionSettings, ChatSettingsMenu, ChatSettingsTags } from "./chat-settings";
 
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -21,6 +21,7 @@ import {
 } from "../../editor/use-coordinated-uploads";
 import { SubmitButton } from "@multica/ui/components/common/submit-button";
 import { ChatAddMenu } from "./chat-add-menu";
+import { ChatPlanningIssues } from "./planning-links";
 import { CHAT_COLUMN, CHAT_GUTTER } from "./chat-column";
 import { useChatStore, DRAFT_NEW_SESSION } from "@multica/core/chat";
 import { attachmentToDraftUpload, type DraftUpload } from "@multica/core/drafts";
@@ -126,6 +127,7 @@ interface ChatInputProps {
   contextItems?: MentionItem[];
   /** Optional project context for the draft or current chat session. */
   runtimeId?: string;
+  model?: string;
   sessionId?: string | null;
   projects?: Project[];
   projectId?: string | null;
@@ -169,6 +171,7 @@ export function ChatInput({
   leftAdornment,
   contextItems,
   runtimeId,
+  model,
   sessionId,
   projects = [],
   projectId,
@@ -610,6 +613,14 @@ export function ChatInput({
     !isProjectUpdating;
   const selectedProject = projects.find((project) => project.id === projectId);
 
+  const settings = useChatSessionSettings({
+    enabled: sessionId !== undefined,
+    sessionId,
+    runtimeId,
+    model,
+    disabled: disabled || noAgent || isRunning || submitting,
+  });
+
   return (
     <div
       ref={composerRef}
@@ -656,39 +667,54 @@ export function ChatInput({
         )}
         aria-disabled={noAgent || undefined}
       >
-        {onProjectChange && (
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 pt-2">
-            <div
-              className={cn(
-                "inline-flex max-w-full",
-                !projectSelectionEnabled && "pointer-events-none opacity-60",
-              )}
-            >
-              <ProjectPicker
-                projectId={selectedProject?.id ?? null}
-                onUpdate={(updates) => onProjectChange?.(updates.project_id ?? null)}
-                disabled={!projectSelectionEnabled}
-                triggerRender={
-                  <ClearablePillButton
+        {(onProjectChange || sessionId !== undefined) && (
+          <div
+            data-slot="chat-context-tags"
+            className="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden px-3 pt-2 empty:hidden"
+          >
+            {onProjectChange && (
+              <>
+                <div
+                  className={cn(
+                    "inline-flex min-w-0 max-w-56 shrink",
+                    !projectSelectionEnabled &&
+                      "pointer-events-none opacity-60",
+                  )}
+                >
+                  <ProjectPicker
+                    projectId={selectedProject?.id ?? null}
+                    onUpdate={(updates) =>
+                      onProjectChange?.(updates.project_id ?? null)
+                    }
                     disabled={!projectSelectionEnabled}
-                    aria-label={t(($) => $.input.change_project_context)}
-                    title={t(($) => $.input.change_project_context)}
-                    onClear={() => onProjectChange?.(null)}
-                    clearLabel={t(($) => $.input.remove_project_context)}
-                    className="h-6 border-surface-border bg-surface-raised font-medium text-foreground"
+                    triggerRender={
+                      <ClearablePillButton
+                        disabled={!projectSelectionEnabled}
+                        aria-label={t(($) => $.input.change_project_context)}
+                        title={t(($) => $.input.change_project_context)}
+                        onClear={() => onProjectChange?.(null)}
+                        clearLabel={t(($) => $.input.remove_project_context)}
+                        className="h-6 border-surface-border bg-surface-raised font-medium text-foreground"
+                      />
+                    }
                   />
-                }
-              />
-            </div>
-            {projectContextUnsupported && (
-              <span className="inline-flex min-w-0 items-center gap-1 text-caption text-warning">
-                <TriangleAlert className="size-3 shrink-0" />
-                {t(($) => $.input.project_context_unsupported)}
-              </span>
+                </div>
+                {projectContextUnsupported && (
+                  <span
+                    title={t(($) => $.input.project_context_unsupported)}
+                    className="inline-flex min-w-0 items-center gap-1 text-caption text-warning"
+                  >
+                    <TriangleAlert className="size-3 shrink-0" />
+                    <span className="truncate">
+                      {t(($) => $.input.project_context_unsupported)}
+                    </span>
+                  </span>
+                )}
+              </>
             )}
+            <ChatSettingsTags settings={settings} />
           </div>
         )}
-        {sessionId !== undefined && <div className="px-3 pt-2"><ChatPlanMode runtimeId={runtimeId} sessionId={sessionId} disabled={disabled || noAgent || isRunning} /></div>}
         <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
           <ContentEditor
             // See the editorKey / draftKey split note above — editor identity
@@ -722,10 +748,17 @@ export function ChatInput({
             showBubbleMenu
           />
         </div>
-        {(uploadEnabled || projectSelectionEnabled || leftAdornment) && (
+        {(uploadEnabled ||
+          projectSelectionEnabled ||
+          sessionId !== undefined ||
+          leftAdornment) && (
           <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1">
-            {(uploadEnabled || projectSelectionEnabled) && (
+            {(uploadEnabled ||
+              projectSelectionEnabled ||
+              sessionId !== undefined) && (
               <ChatAddMenu
+                extraItems={<ChatSettingsMenu settings={settings} />}
+                disabled={disabled || noAgent || submitting}
                 onSelectFile={uploadEnabled
                   ? (file) => editorRef.current?.uploadFile(file)
                   : undefined}
@@ -735,6 +768,7 @@ export function ChatInput({
                 projectContextUnsupported={projectContextUnsupported}
               />
             )}
+            {sessionId && <ChatPlanningIssues key={sessionId} sessionId={sessionId} />}
             {leftAdornment}
           </div>
         )}
