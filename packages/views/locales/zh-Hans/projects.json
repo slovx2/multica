@@ -152,7 +152,11 @@
     "ref_default_tooltip": "未设置分支 —— 任务使用仓库当时的默认分支。",
     "scope": "适用范围",
     "scope_all": "全部运行",
-    "scope_chat": "仅聊天"
+    "scope_chat": "仅聊天",
+    "auto_sync": "自动同步",
+    "sync_off": "关闭",
+    "sync_fetch": "仅抓取",
+    "sync_ff": "抓取并快进"
   },
   "delete_dialog": {
     "title": "删除项目",

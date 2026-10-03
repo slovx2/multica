@@ -4582,6 +4582,13 @@ func (d *Daemon) handleHeartbeatActions(ctx context.Context, runtimeID string, r
 	if resp.PendingUpdate != nil {
 		go d.handleUpdate(ctx, runtimeID, resp.PendingUpdate)
 	}
+	if len(resp.PendingDirectorySync) > 0 {
+		for _, req := range resp.PendingDirectorySync {
+			if rt := d.findRuntime(runtimeID); rt != nil {
+				go d.handleDirectorySync(ctx, rt.ID, req)
+			}
+		}
+	}
 	if resp.PendingModelList != nil {
 		if rt := d.findRuntime(runtimeID); rt != nil {
 			go d.handleModelList(ctx, *rt, resp.PendingModelList.ID)
@@ -7886,6 +7893,19 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// LocalWorkDir into execenv. handleTask already validated + locked the
 	// path for worker tasks; leader tasks intentionally skip the assignment.
 	localAssignment, _ := localDirectoryAssignmentForTask(task, d.cfg.DaemonID)
+	var directorySync *directorySyncResult
+	if task.ChatSessionID != "" && task.IssueID == "" && localAssignment != nil {
+		// A short lock serializes sync with daemon writers without making chat wait for them.
+		release := d.localPathLocks.TryAcquire(localAssignment.RealPath, task.ID)
+		value := syncLocalDirectory(ctx, localAssignment.AbsPath, localAssignment.Ref.AutoSync, release != nil)
+		if release != nil {
+			release()
+		}
+		directorySync = &value
+		if value.Status == "warning" {
+			taskLog.Warn(value.Summary())
+		}
+	}
 	// Reuse intentionally skipped for local_directory tasks: the prior
 	// WorkDir is the user's own path (always present) but the reuse path
 	// loses the envRoot association the GC loop needs, and re-running
@@ -8473,6 +8493,9 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		promptOptions = append(promptOptions, WithWorktreeReplayConflicts(env.LocalWorktree.ReplayConflicts))
 	}
 	prompt := BuildPrompt(task, provider, promptOptions...)
+	if directorySync != nil && directorySync.Summary() != "" {
+		prompt += "\n\n" + directorySync.Summary()
+	}
 
 	// Pass task-scoped auth credentials and context so the spawned agent CLI
 	// can call the Multica API and the local daemon (e.g. `multica repo checkout`).
@@ -8687,7 +8710,13 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	if task.PlanMode && !planning.Supported(provider) {
 		return TaskResult{}, fmt.Errorf("plan mode is supported only by Claude and Codex")
 	}
+	if task.ChatAction != "" && (task.ChatSessionID == "" || task.IssueID != "" || task.ChatAction != "compact" || !planning.Supported(provider)) {
+		return TaskResult{}, fmt.Errorf("unsupported chat action")
+	}
 	execOpts := agent.ExecOptions{
+		PriorContextUsage:          task.PriorContextUsage,
+		CompactContext:             task.ChatSessionID != "" && task.ChatAction == "compact",
+		ChatContext:                task.ChatSessionID != "" && task.IssueID == "",
 		PlanMode:                   task.PlanMode,
 		EnableTaskSupplement:       taskSupplementNegotiated,
 		Cwd:                        env.WorkDir,
@@ -8799,6 +8828,11 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// Shared across the resume-retry below so the retry's transcript rows
 	// keep ascending seq values for the same task.
 	var msgSeq atomic.Int32
+	if execOpts.ChatContext {
+		reportCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_ = d.client.postJSON(reportCtx, fmt.Sprintf("/api/daemon/tasks/%s/chat-context", task.ID), map[string]any{"compaction": nil}, nil)
+		cancel()
+	}
 	execute := func(options agent.ExecOptions) (agent.Result, int32, error) {
 		return d.executeAndDrain(ctx, backend, prompt, options, taskLog, task.ID, env.CodexHome, &msgSeq)
 	}
@@ -8807,6 +8841,25 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		return TaskResult{}, err
 	}
 
+	if execOpts.ChatContext {
+		defer func() {
+			reportCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			state := map[string]any{}
+			if result.ContextUsage != nil {
+				state["usage"] = result.ContextUsage
+			}
+			if result.Status != "completed" {
+				state["compaction"] = nil
+			}
+			if directorySync != nil {
+				state["sync"] = directorySync
+			}
+			if err := d.client.postJSONWithRetry(reportCtx, fmt.Sprintf("/api/daemon/tasks/%s/chat-context", task.ID), state, nil, nil); err != nil {
+				taskLog.Warn("report chat context", "error", err)
+			}
+		}()
+	}
 	// retiredSessionID is the session this run was told to resume and then
 	// abandoned. Captured before the retry clears task.PriorSessionID, and
 	// reported on EVERY terminal path — the retry succeeding is exactly when
@@ -8816,7 +8869,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	var retiredSessionID string
 	defer func() { taskResult.RetiredSessionID = retiredSessionID }()
 
-	if shouldRetryWithFreshSession(result, task.PriorSessionID, tools, provider) {
+	if !execOpts.CompactContext && shouldRetryWithFreshSession(result, task.PriorSessionID, tools, provider) {
 		firstResult := result
 		firstUsage := result.Usage
 		firstTools := tools
@@ -9567,6 +9620,14 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 				observedAt := time.Now().UTC()
 				lastActivityAt.Store(observedAt.UnixNano())
 				switch msg.Type {
+				case agent.MessageCompaction:
+					if opts.ChatContext && msg.Compaction != nil {
+						reportCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						if err := d.client.postJSON(reportCtx, fmt.Sprintf("/api/daemon/tasks/%s/chat-context", taskID), map[string]any{"compaction": msg.Compaction}, nil); err != nil {
+							taskLog.Warn("report compaction", "error", err)
+						}
+						cancel()
+					}
 				case agent.MessageStatus:
 					// Persist the session/work_dir as soon as the backend
 					// reveals them. Without this, a daemon crash mid-run

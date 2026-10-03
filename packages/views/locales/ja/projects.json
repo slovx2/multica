@@ -152,7 +152,11 @@
     "ref_default_tooltip": "ブランチ未設定 — タスクはその時点のリポジトリのデフォルトブランチを使用します。",
     "scope": "適用範囲",
     "scope_all": "すべての実行",
-    "scope_chat": "チャットのみ"
+    "scope_chat": "チャットのみ",
+    "auto_sync": "自動同期",
+    "sync_off": "オフ",
+    "sync_fetch": "フェッチのみ",
+    "sync_ff": "フェッチと早送り"
   },
   "delete_dialog": {
     "title": "プロジェクトを削除",

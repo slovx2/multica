@@ -1369,6 +1369,7 @@ LIMIT 1;
 -- only need an existence check.
 SELECT
     task.id,
+    COALESCE(task.context->>'chat_action', '')::text AS action,
     task.status,
     task.created_at,
     -- Only meaningful while status is waiting_local_directory: the daemon

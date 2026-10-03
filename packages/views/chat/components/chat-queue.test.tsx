@@ -6,7 +6,7 @@ import { ChatQueue } from "./chat-queue";
 
 const TEST_RESOURCES = { en: { chat: enChat } };
 
-function renderQueue(headStatus = "running", sendNowDisabled = false) {
+function renderQueue(headStatus = "running", sendNowDisabled = false, action?: "compact") {
   const callbacks = {
     onSendNow: vi.fn<(taskId: string) => Promise<void>>().mockResolvedValue(),
     onEdit: vi.fn<(taskId: string) => Promise<void>>().mockResolvedValue(),
@@ -23,6 +23,7 @@ function renderQueue(headStatus = "running", sendNowDisabled = false) {
             task_id: "task-2",
             status: "queued",
             content: "First follow-up",
+            action,
             created_at: "2026-07-01T00:01:00Z",
           },
           {
@@ -40,6 +41,20 @@ function renderQueue(headStatus = "running", sendNowDisabled = false) {
 }
 
 describe("ChatQueue", () => {
+  it("labels compaction actions and prevents editing them as messages", async () => {
+    const actions = renderQueue("running", false, "compact");
+    expect(screen.getByText("Compact context")).toBeInTheDocument();
+    const steer = screen.getAllByRole("button", { name: "Steer" })[0]!;
+    expect(steer).toBeDisabled();
+    fireEvent.click(steer);
+    expect(actions.onSendNow).not.toHaveBeenCalled();
+    fireEvent.click(screen.getAllByLabelText("More queue actions")[0]!);
+    const edit = await screen.findByRole("menuitem", { name: "Edit queued message" });
+    expect(edit).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(edit);
+    expect(actions.onEdit).not.toHaveBeenCalled();
+  });
+
   it("renders a standalone queue card without a separate header", () => {
     const { container } = renderQueue();
 

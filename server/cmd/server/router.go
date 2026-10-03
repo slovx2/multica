@@ -1594,6 +1594,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Post("/tasks/{taskId}/complete", h.CompleteTask)
 		r.Post("/tasks/{taskId}/fail", h.FailTask)
 		r.Post("/tasks/{taskId}/usage", h.ReportTaskUsage)
+		r.Post("/runtimes/{runtimeId}/directory-sync", h.ReportChatDirectorySync)
+		r.Post("/tasks/{taskId}/chat-context", h.ReportChatContext)
 		r.Post("/tasks/{taskId}/cards", h.ReportChatCard)
 		r.Post("/tasks/{taskId}/messages", h.ReportTaskMessages)
 		r.Get("/tasks/{taskId}/messages", h.ListTaskMessages)
@@ -2404,6 +2406,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Patch("/pin", h.SetChatSessionPinned)
 					r.Patch("/archive", h.SetChatSessionArchived)
 					r.Delete("/", h.DeleteChatSession)
+					r.Post("/directory-sync", h.InitiateChatDirectorySync)
+					r.Get("/directory-sync/{syncId}", h.GetChatDirectorySync)
 					r.Post("/messages", h.SendChatMessage)
 					r.Post("/onboarding", h.StartMikaOnboarding)
 					// Explicit "refresh" of a turn's quick actions: re-runs the

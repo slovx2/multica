@@ -532,6 +532,7 @@ WHERE chat_session_id IN (
 
 -- name: DeleteWorkspaceCommunicationRoots :exec
 WITH
+deleted_directory_sync AS (DELETE FROM chat_directory_sync WHERE workspace_id = $1),
 deleted_chat_cards AS (DELETE FROM chat_card WHERE workspace_id = $1),
 deleted_planning_links AS (DELETE FROM issue_chat_session WHERE workspace_id = $1),
 deleted_sessions AS (

@@ -7,6 +7,7 @@ import (
 )
 
 const (
+	DaemonCapabilityChatContextV1            = "chat-context-v1"
 	DaemonCapabilityChatExecutionOverridesV1 = "chat-execution-overrides-v1"
 
 	DaemonCapabilitySkillBundlesV1      = "skill-bundles-v1"
@@ -423,6 +424,11 @@ type DaemonHeartbeatRequestPayload struct {
 // The daemon reads this signal, prunes the stale runtime from its local state
 // and re-registers; without it the dead UUID would keep heartbeating until the
 // daemon process restarts.
+type DaemonHeartbeatPendingDirectorySync struct {
+	ID          string          `json:"id"`
+	ResourceRef json.RawMessage `json:"resource_ref"`
+}
+
 type DaemonHeartbeatAckPayload struct {
 	RuntimeID               string                                  `json:"runtime_id"`
 	Status                  string                                  `json:"status"`
@@ -437,6 +443,8 @@ type DaemonHeartbeatAckPayload struct {
 	// that don't know this field silently ignore it (standard JSON behavior)
 	// and fall back to the singular PendingLocalSkillImport above.
 	PendingLocalSkillImports []DaemonHeartbeatPendingLocalSkillImport `json:"pending_local_skill_imports,omitempty"`
+
+	PendingDirectorySync []DaemonHeartbeatPendingDirectorySync `json:"pending_directory_sync,omitempty"`
 }
 
 // HeartbeatStatusRuntimeGone is the ack Status used when the runtime row no

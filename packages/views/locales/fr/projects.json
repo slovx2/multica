@@ -153,7 +153,11 @@
     "ref_default_tooltip": "Aucune branche définie — les tâches utilisent la branche par défaut du dépôt au moment voulu.",
     "scope": "Portée",
     "scope_all": "Toutes les exécutions",
-    "scope_chat": "Chat uniquement"
+    "scope_chat": "Chat uniquement",
+    "auto_sync": "Synchronisation automatique",
+    "sync_off": "Désactivée",
+    "sync_fetch": "Récupérer seulement",
+    "sync_ff": "Récupérer et avancer"
   },
   "delete_dialog": {
     "title": "Supprimer le projet",

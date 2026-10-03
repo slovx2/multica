@@ -1,3 +1,21 @@
+export interface ChatContextState {
+  runtime_id?: string;
+  usage?: { used: number; window: number } | null;
+  compaction?: {
+    status: "started" | "completed" | "failed";
+    error?: string;
+    pre_tokens?: number;
+    post_tokens?: number;
+  } | null;
+}
+export interface DirectorySyncResult {
+  status: string;
+  reason?: string;
+  upstream?: string;
+  ahead: number;
+  behind: number;
+  updated: number;
+}
 export interface ChatExecutionOverrides {
   thinking_level?: string;
   service_tier?: string;
@@ -89,6 +107,7 @@ export interface ChatChannelSource {
 }
 
 export interface ChatSession {
+  context_state?: ChatContextState;
   plan_mode?: boolean;
   execution_overrides?: ChatExecutionOverrides;
   id: string;
@@ -283,6 +302,7 @@ export interface ChatDraftRestoresResponse {
  * so the timer survives refresh / reopen without "resetting to 0s".
  */
 export interface ChatQueuedTask {
+  action?: string;
   task_id: string;
   status: string;
   created_at: string;

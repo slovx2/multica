@@ -140,6 +140,7 @@ var pgBigmOperatorClass = extensionOperatorClass{
 // they are still pending: a fresh self-hosted install, which is exactly where an
 // interrupted build would otherwise leave a permanently unusable index.
 var concurrentIndexCleanups = map[string]string{
+	"572_chat_directory_sync_pending":                           "chat_directory_sync_pending_idx",
 	"565_chat_card_id":                                          "chat_card_id_idx",
 	"566_chat_card_source":                                      "chat_card_source_idx",
 	"567_issue_chat_session_key":                                "issue_chat_session_key_idx",

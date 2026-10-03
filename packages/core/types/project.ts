@@ -98,6 +98,7 @@ export interface LocalDirectoryResourceRef {
   label?: string;
   scope?: "all" | "chat";
   execution_mode?: LocalDirectoryExecutionMode;
+  auto_sync?: "off" | "fetch" | "fetch_ff";
 }
 
 export type ProjectResourceRef =

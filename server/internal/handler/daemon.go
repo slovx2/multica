@@ -1190,6 +1190,9 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if ack.PendingUpdate != nil {
 		resp["pending_update"] = ack.PendingUpdate
 	}
+	if len(ack.PendingDirectorySync) > 0 {
+		resp["pending_directory_sync"] = ack.PendingDirectorySync
+	}
 	if ack.PendingModelList != nil {
 		resp["pending_model_list"] = ack.PendingModelList
 	}
@@ -1511,6 +1514,17 @@ func (h *Handler) processHeartbeat(ctx context.Context, runtimeID string, suppor
 			slog.Warn("local skill import HasPending timed out", "runtime_id", runtimeID, "elapsed_ms", m.ProbeImportMs)
 		} else {
 			slog.Warn("local skill import HasPending failed", "error", probeErr, "runtime_id", runtimeID)
+		}
+	}
+
+	if runtimeUUID, e := util.ParseUUID(runtimeID); e == nil {
+		requests, e := h.Queries.ClaimChatDirectorySync(ctx, runtimeUUID)
+		if e != nil {
+			slog.Warn("claim directory sync", "error", e)
+		} else {
+			for _, req := range requests {
+				ack.PendingDirectorySync = append(ack.PendingDirectorySync, protocol.DaemonHeartbeatPendingDirectorySync{ID: uuidToString(req.ID), ResourceRef: req.ResourceRef})
+			}
 		}
 	}
 
@@ -3063,6 +3077,17 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 		if failure := h.rejectClaimOnWorkspaceMismatch(r.Context(), task, resp.WorkspaceID, runtimeID, runtimeWorkspaceID, false); failure != nil {
 			return resp, deliveredCommentIDs, issueSnapshot, agentSkillCount, builtinSkillCount, failure
 		}
+		var priorContext struct {
+			RuntimeID string          `json:"runtime_id"`
+			Usage     json.RawMessage `json:"usage"`
+		}
+		if json.Unmarshal(cs.ContextState, &priorContext) == nil && priorContext.RuntimeID == uuidToString(task.RuntimeID) {
+			_ = json.Unmarshal(priorContext.Usage, &resp.PriorContextUsage)
+		}
+		resp.ChatAction = chatconfig.Action(task.Context)
+		if resp.ChatAction != "" && (resp.ChatAction != "compact" || !planning.Supported(runtime.Provider) || !requestHasClientCapability(r, protocol.DaemonCapabilityChatContextV1)) {
+			return resp, deliveredCommentIDs, issueSnapshot, agentSkillCount, builtinSkillCount, h.failClaimedTaskBeforeLaunch(r.Context(), task, "update daemon to compact chat context", taskfailure.ReasonAgentMissingConfig, "unsupported_chat_action", http.StatusBadRequest, "update daemon to compact chat context")
+		}
 		resp.ChatSessionID = uuidToString(cs.ID)
 		resp.PlanMode = cs.PlanMode
 		var planningContext struct {
@@ -3315,7 +3340,7 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 		// same transaction as the task, so this only fires on genuinely
 		// corrupt state — cancel the just-dispatched task and reject the claim
 		// rather than run the agent with nothing to answer (MUL-4351).
-		if task.ChatInputTaskID.Valid && !resp.ChatIntro && strings.TrimSpace(resp.ChatMessage) == "" {
+		if task.ChatInputTaskID.Valid && resp.ChatAction == "" && !resp.ChatIntro && strings.TrimSpace(resp.ChatMessage) == "" {
 			slog.Error("chat claim: task-owned direct task has no user input; cancelling",
 				"task_id", uuidToString(task.ID),
 				"chat_session_id", uuidToString(cs.ID),

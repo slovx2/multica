@@ -2033,6 +2033,19 @@ const ChatChannelSourceSchema = z.object({
 }).loose();
 
 export const ChatSessionSchema: z.ZodType<ChatSession> = z.object({
+  context_state: z.object({
+    runtime_id: z.string().optional(),
+    usage: z.object({
+      used: z.number().int().nonnegative(),
+      window: z.number().int().positive(),
+    }).nullable().catch(null).optional(),
+    compaction: z.object({
+      status: z.enum(["started", "completed", "failed"]),
+      error: z.string().optional(),
+      pre_tokens: z.number().nonnegative().optional(),
+      post_tokens: z.number().nonnegative().optional(),
+    }).nullable().catch(null).optional(),
+  }).catch({}).optional(),
   plan_mode: z.boolean().catch(false).default(false),
   execution_overrides: z.object({
     thinking_level: z.string().catch("").optional(),
@@ -2092,6 +2105,7 @@ export const ChatDraftRestoresResponseSchema = z.object({
 }).loose();
 
 const ChatQueuedTaskSchema = z.object({
+  action: z.string().catch("").optional(),
   task_id: z.string(),
   status: z.string().default("queued"),
   created_at: z.string().default(""),
@@ -2127,6 +2141,14 @@ export const SendChatMessageResponseSchema: z.ZodType<SendChatMessageResponse> =
   created_at: z.string().min(1),
   attachment_ids: z.array(z.string()).nullish().transform((ids) => ids ?? undefined),
 }).loose();
+
+// Control actions enqueue a task without creating a chat_message row.
+export const SendChatActionResponseSchema = z.object({
+  task_id: z.string().min(1),
+  supports_queue: z.boolean().optional(),
+  queued: z.boolean().optional(),
+  created_at: z.string().min(1),
+});
 
 // `started` is the only field the flow branches on, and a malformed response
 // must not be read as "the opening landed" — parseWithFallback's fallback says
@@ -3715,3 +3737,16 @@ export const RuntimeProfileSchema = z
     runtime_type: profile.runtime_type || profile.protocol_family,
   }));
 export const RuntimeProfileListSchema = z.array(RuntimeProfileSchema);
+
+export const DirectorySyncRequestSchema = z.object({ id: z.string() });
+export const DirectorySyncStatusSchema = z.object({
+  status: z.enum(["pending", "running", "completed", "timeout"]),
+  result: z.object({
+    status: z.string(),
+    reason: z.string().optional(),
+    upstream: z.string().optional(),
+    ahead: z.number(),
+    behind: z.number(),
+    updated: z.number(),
+  }).nullable().optional(),
+});

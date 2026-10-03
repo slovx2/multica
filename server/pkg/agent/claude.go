@@ -40,6 +40,12 @@ type claudeBackend struct {
 }
 
 func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOptions) (*Session, error) {
+	if opts.CompactContext {
+		if opts.ResumeSessionID == "" {
+			return nil, fmt.Errorf("context compaction requires an existing session")
+		}
+		prompt = "/compact"
+	}
 	execPath := b.cfg.ExecutablePath
 	if execPath == "" {
 		execPath = "claude"
@@ -201,6 +207,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		var sessionID string
 		var lastUsageResult *claudeSDKMessage
 		sawAsyncLaunch := false
+		contextTracker := newClaudeContextTracker(opts)
 		usage := make(map[string]TokenUsage)
 		seenUsage := make(map[string]struct{})
 		eventCount := 0
@@ -259,9 +266,17 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 			}
 			eventCount++
 			planningState.observe(msg)
+			if opts.ChatContext {
+				if compact := contextTracker.observe(msg); compact != nil {
+					msgCh <- Message{Type: MessageCompaction, Compaction: compact}
+				}
+			}
 
 			switch msg.Type {
 			case "assistant":
+				if opts.CompactContext {
+					continue
+				}
 				assistantEventCount++
 				turn := b.handleAssistant(msg, msgCh, usage, seenUsage)
 				toolUseCount += turn.toolUses
@@ -453,7 +468,11 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 			)
 		}
 
+		if opts.CompactContext {
+			finalOutput = ""
+		}
 		resCh <- Result{
+			ContextUsage:   contextTracker.usage(),
 			Status:         finalStatus,
 			Output:         finalOutput,
 			Error:          finalError,
@@ -683,6 +702,12 @@ type claudeSDKMessage struct {
 	RequestID string          `json:"request_id,omitempty"`
 	Request   json.RawMessage `json:"request,omitempty"`
 	Response  json.RawMessage `json:"response,omitempty"`
+
+	Status          string `json:"status"`
+	CompactMetadata struct {
+		PreTokens  *int64 `json:"pre_tokens"`
+		PostTokens *int64 `json:"post_tokens"`
+	} `json:"compact_metadata"`
 }
 
 type claudeLogEntry struct {
@@ -710,6 +735,8 @@ type claudeResultModelUsage struct {
 	OutputTokens             int64 `json:"outputTokens"`
 	CacheReadInputTokens     int64 `json:"cacheReadInputTokens"`
 	CacheCreationInputTokens int64 `json:"cacheCreationInputTokens"`
+
+	ContextWindow int64 `json:"contextWindow"`
 }
 
 // claudeTerminalReasonFailure turns Claude Code's structured terminal_reason

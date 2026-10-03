@@ -138,6 +138,10 @@ type ExecOptions struct {
 	// through Claude Code's --settings flag. It currently carries restrictive
 	// runtime-skill overrides only; other providers ignore it.
 	ClaudeSettingsPath string
+
+	CompactContext    bool
+	ChatContext       bool
+	PriorContextUsage *ContextUsage
 }
 
 // runContext derives the execution context for an agent subprocess from the
@@ -225,6 +229,8 @@ type Message struct {
 	Status    string         // agent status string (Status)
 	Level     string         // log level (Log)
 	SessionID string         // backend session id (Status), for early resume-pointer pinning
+
+	Compaction *Compaction
 }
 
 // TokenUsage tracks token consumption for a single model.
@@ -308,6 +314,8 @@ type Result struct {
 	// its model catalog, and that the process tree was reaped afterwards.
 	// Like codexInitializeRetrySafe it is not part of the public contract.
 	codexStartupRefreshRetrySafe bool
+
+	ContextUsage *ContextUsage
 }
 
 // Config configures a Backend instance.

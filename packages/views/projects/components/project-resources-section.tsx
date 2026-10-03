@@ -397,6 +397,17 @@ export function ProjectResourcesSection({ projectId }: { projectId: string }) {
             <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
               {resources.map((resource) => (
                 <ResourceRow
+                  onSyncChange={(auto_sync) =>
+                    updateResource.mutate(
+                      {
+                        resourceId: resource.id,
+                        data: {
+                          resource_ref: { ...resource.resource_ref, auto_sync },
+                        },
+                      },
+                      { onError: (error) => toast.error(error.message) },
+                    )
+                  }
                   onScopeChange={(scope) => updateResource.mutate({ resourceId: resource.id, data: { resource_ref: { ...resource.resource_ref, scope } } }, { onError: (error) => toast.error(error.message) })}
                   key={resource.id}
                   resource={resource}
@@ -629,6 +640,7 @@ function worktreeUnavailableReason(
 }
 
 interface ResourceRowProps {
+  onSyncChange: (mode: "off" | "fetch" | "fetch_ff") => void;
   onScopeChange: (scope: "all" | "chat") => void;
   resource: ProjectResource;
   githubRepoDescription?: string;
@@ -643,6 +655,7 @@ interface ResourceRowProps {
 }
 
 function ResourceRow({
+  onSyncChange,
   onScopeChange,
   resource,
   githubRepoDescription,
@@ -737,6 +750,7 @@ function ResourceRow({
   if (isLocalDirectoryRef(resource)) {
     return (
       <LocalDirectoryRow
+        onSyncChange={onSyncChange}
         onScopeChange={onScopeChange}
         resource={resource}
         localDaemonId={localDaemonId}
@@ -764,6 +778,7 @@ function ResourceRow({
 }
 
 interface LocalDirectoryRowProps {
+  onSyncChange: (mode: "off" | "fetch" | "fetch_ff") => void;
   onScopeChange: (scope: "all" | "chat") => void;
   resource: ProjectResource & { resource_ref: LocalDirectoryResourceRef };
   localDaemonId: string | null;
@@ -774,6 +789,7 @@ interface LocalDirectoryRowProps {
 }
 
 function LocalDirectoryRow({
+  onSyncChange,
   onScopeChange,
   resource,
   localDaemonId,
@@ -794,74 +810,97 @@ function LocalDirectoryRow({
 
   return (
     <div
-      className={`flex items-center gap-2 text-caption group ${
+      className={`flex flex-col gap-2 text-caption group ${
         mismatch ? "opacity-60" : ""
       }`}
     >
-      <FolderOpen className="size-3.5 text-muted-foreground shrink-0" />
-      {/* The name is the folder's own (or whatever a label update stored);
-          there is deliberately no rename here. A folder is identified by its
-          path, and a pencil that only retitled the row read as a broken edit
-          action beside the branch and remove controls (MUL-7525). */}
-      <Tooltip>
-        <TooltipTrigger
-          render={<span className="truncate flex-1">{display}</span>}
-        />
-        <TooltipContent side="top">
-          <div className="space-y-0.5 text-micro">
-            <div className="font-mono">{ref.local_path}</div>
-            {mismatch && (
-              <div className="text-muted-foreground">
-                {isLocalUnknown
-                  ? t(($) => $.resources.local_no_daemon_tooltip)
-                  : t(($) => $.resources.local_other_machine_tooltip)}
-              </div>
-            )}
-          </div>
-        </TooltipContent>
-      </Tooltip>
-      {/* Always visible, unlike the hover-only actions: without it there is no
-          way to tell whether tasks on this folder edit it directly or hand back
-          a branch, which is the first thing someone asks when a task queues (or
-          does not). */}
-      {mode === "worktree" && (
+      <div className="flex min-w-0 items-center gap-2">
+        <FolderOpen className="size-3.5 text-muted-foreground shrink-0" />
+        {/* The name is the folder's own (or whatever a label update stored);
+            there is deliberately no rename here. A folder is identified by its
+            path, and a pencil that only retitled the row read as a broken edit
+            action beside the branch and remove controls (MUL-7525). */}
         <Tooltip>
           <TooltipTrigger
-            render={
-              <Badge variant="secondary" className="shrink-0 gap-1 font-normal">
-                <GitBranch className="size-3" />
-                {t(($) => $.resources.mode_badge_worktree)}
-              </Badge>
-            }
+            render={<span className="min-w-0 truncate flex-1">{display}</span>}
           />
           <TooltipContent side="top">
-            {t(($) => $.resources.mode_badge_worktree_tooltip)}
+            <div className="space-y-0.5 text-micro">
+              <div className="font-mono">{ref.local_path}</div>
+              {mismatch && (
+                <div className="text-muted-foreground">
+                  {isLocalUnknown
+                    ? t(($) => $.resources.local_no_daemon_tooltip)
+                    : t(($) => $.resources.local_other_machine_tooltip)}
+                </div>
+              )}
+            </div>
           </TooltipContent>
         </Tooltip>
-      )}
-      <select aria-label={t(($) => $.resources.scope)} value={ref.scope ?? "all"} onChange={(e) => onScopeChange(e.target.value === "chat" ? "chat" : "all")} className="rounded-md border bg-background px-1 py-0.5 text-caption">
-        <option value="all">{t(($) => $.resources.scope_all)}</option>
-        <option value="chat">{t(($) => $.resources.scope_chat)}</option>
-      </select>
-      {/* Not gated on `mismatch`: switching the mode only rewrites a field, so
-          it works from the web app or another device, unlike the folder
-          picker. */}
-      <button
-        type="button"
-        onClick={() => onEditMode(resource)}
-        className="opacity-0 group-hover:opacity-100 transition-opacity rounded-sm p-0.5 hover:bg-accent"
-        title={t(($) => $.resources.mode_edit_tooltip)}
-      >
-        <GitBranch className="size-3 text-muted-foreground" />
-      </button>
-      <button
-        type="button"
-        onClick={onRemove}
-        className="opacity-0 group-hover:opacity-100 transition-opacity rounded-sm p-0.5 hover:bg-accent"
-        title={t(($) => $.resources.remove_tooltip)}
-      >
-        <Trash2 className="size-3 text-muted-foreground" />
-      </button>
+        {/* Always visible, unlike the hover-only actions: without it there is no
+            way to tell whether tasks on this folder edit it directly or hand back
+            a branch, which is the first thing someone asks when a task queues (or
+            does not). */}
+        {mode === "worktree" && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Badge variant="secondary" className="shrink-0 gap-1 font-normal">
+                  <GitBranch className="size-3" />
+                  {t(($) => $.resources.mode_badge_worktree)}
+                </Badge>
+              }
+            />
+            <TooltipContent side="top">
+              {t(($) => $.resources.mode_badge_worktree_tooltip)}
+            </TooltipContent>
+          </Tooltip>
+        )}
+        {/* Not gated on `mismatch`: switching the mode only rewrites a field, so
+            it works from the web app or another device, unlike the folder
+            picker. */}
+        <button
+          type="button"
+          onClick={() => onEditMode(resource)}
+          className="opacity-0 group-hover:opacity-100 transition-opacity rounded-sm p-0.5 hover:bg-accent"
+          title={t(($) => $.resources.mode_edit_tooltip)}
+        >
+          <GitBranch className="size-3 text-muted-foreground" />
+        </button>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="opacity-0 group-hover:opacity-100 transition-opacity rounded-sm p-0.5 hover:bg-accent"
+          title={t(($) => $.resources.remove_tooltip)}
+        >
+          <Trash2 className="size-3 text-muted-foreground" />
+        </button>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 pl-5">
+        <select
+          aria-label={t(($) => $.resources.auto_sync)}
+          value={ref.auto_sync ?? "fetch_ff"}
+          onChange={(e) =>
+            onSyncChange(e.target.value as "off" | "fetch" | "fetch_ff")
+          }
+          className="rounded-md border bg-background px-1 py-0.5 text-caption"
+        >
+          <option value="off">{t(($) => $.resources.sync_off)}</option>
+          <option value="fetch">{t(($) => $.resources.sync_fetch)}</option>
+          <option value="fetch_ff">{t(($) => $.resources.sync_ff)}</option>
+        </select>
+        <select
+          aria-label={t(($) => $.resources.scope)}
+          value={ref.scope ?? "all"}
+          onChange={(e) =>
+            onScopeChange(e.target.value === "chat" ? "chat" : "all")
+          }
+          className="rounded-md border bg-background px-1 py-0.5 text-caption"
+        >
+          <option value="all">{t(($) => $.resources.scope_all)}</option>
+          <option value="chat">{t(($) => $.resources.scope_chat)}</option>
+        </select>
+      </div>
     </div>
   );
 }

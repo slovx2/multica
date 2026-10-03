@@ -567,6 +567,9 @@ type AgentTaskResponse struct {
 	// owning user; the daemon must not fall back to its own credential. See
 	// MUL-3292.
 	AuthToken string `json:"auth_token,omitempty"`
+
+	ChatAction        string              `json:"chat_action,omitempty"`
+	PriorContextUsage *agent.ContextUsage `json:"prior_context_usage,omitempty"`
 }
 
 // TaskAttribution is the wire shape of a run's accountable-human provenance

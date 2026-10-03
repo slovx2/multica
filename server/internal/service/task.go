@@ -28,6 +28,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/runtimeapps"
 	"github.com/multica-ai/multica/server/internal/util"
+	"github.com/multica-ai/multica/server/pkg/chatconfig"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/dbid"
 	"github.com/multica-ai/multica/server/pkg/featureflag"
@@ -3272,7 +3273,7 @@ func deleteUserChatInput(ctx context.Context, qtx *db.Queries, inputOwnerID pgty
 }
 
 func (s *TaskService) finalizeCancelledChatMessage(ctx context.Context, task db.AgentTaskQueue, opts CancelTaskOptions) *CancelledChatMessageResult {
-	if !task.ChatSessionID.Valid || task.IssueID.Valid {
+	if !task.ChatSessionID.Valid || task.IssueID.Valid || chatconfig.Action(task.Context) != "" {
 		return nil
 	}
 	var cancelled *CancelledChatMessageResult
@@ -4705,6 +4706,9 @@ const chatNoResponseFallback = "The agent finished this turn without a text repl
 // owner id so an auto-retry clone (which inherits chat_input_task_id) reaches
 // the same verdict as its parent — while a NULL owner marks a legacy task.
 func (s *TaskService) writeChatCompletionOutcome(ctx context.Context, qtx *db.Queries, task db.AgentTaskQueue, result []byte) (*db.ChatMessage, error) {
+	if chatconfig.Action(task.Context) != "" {
+		return nil, nil
+	}
 	// result is the daemon request re-marshalled by the handler, so it is always
 	// valid JSON; an empty Output is the only case this branch cares about.
 	var payload protocol.TaskCompletedPayload
@@ -4977,6 +4981,7 @@ func (s *TaskService) FailTaskWithTransition(ctx context.Context, taskID pgtype.
 		}
 	}
 
+	var compactFailureSession *db.ChatSession
 	var task db.AgentTaskQueue
 	var retried *db.AgentTaskQueue
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
@@ -5163,12 +5168,24 @@ func (s *TaskService) FailTaskWithTransition(ctx context.Context, taskID pgtype.
 			}
 		}
 
+		if t.ChatSessionID.Valid && !t.IssueID.Valid && retried == nil && chatconfig.Action(t.Context) == "compact" {
+			cs, err := qtx.GetChatSession(ctx, t.ChatSessionID)
+			if err != nil {
+				return err
+			}
+			state, _ := json.Marshal(map[string]any{"compaction": map[string]string{"status": "failed", "error": redact.Text(errMsg)}})
+			if err := qtx.UpdateChatContextState(ctx, db.UpdateChatContextStateParams{ID: cs.ID, WorkspaceID: cs.WorkspaceID, State: state}); err != nil {
+				return err
+			}
+			compactFailureSession = &cs
+		}
+
 		// A terminal non-retried chat failure is a visible assistant outcome.
 		// Persist it while the session lock and failure transaction are still
 		// held, then reanchor the next direct head. Otherwise the successor could
 		// be claimed between the status flip and this row, placing its user input
 		// before the failure it follows.
-		if t.ChatSessionID.Valid && retried == nil {
+		if t.ChatSessionID.Valid && retried == nil && chatconfig.Action(t.Context) == "" {
 			// This turn is dead, so anything it owned has to move on. An adopted
 			// onboarding kickoff would otherwise stay bound to a task that will
 			// never run again: the next turn would reach Mika with no onboarding
@@ -5223,6 +5240,11 @@ func (s *TaskService) FailTaskWithTransition(ctx context.Context, taskID pgtype.
 			)
 		}
 		return nil, false, fmt.Errorf("fail task: %w", err)
+	}
+
+	if compactFailureSession != nil {
+		cs := compactFailureSession
+		s.Bus.Publish(events.Event{Type: protocol.EventChatSessionUpdated, WorkspaceID: util.UUIDToString(cs.WorkspaceID), ActorType: "member", ActorID: util.UUIDToString(cs.CreatorID), ChatSessionID: util.UUIDToString(cs.ID), Payload: map[string]any{"chat_session_id": util.UUIDToString(cs.ID), "context_changed": true}})
 	}
 
 	slog.Warn("task failed", "task_id", util.UUIDToString(task.ID), "issue_id", util.UUIDToString(task.IssueID), "error", errMsg, "failure_reason", failureReason)
