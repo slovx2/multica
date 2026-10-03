@@ -8,9 +8,15 @@ import enCommon from "../../locales/en/common.json";
 import enChat from "../../locales/en/chat.json";
 import enEditor from "../../locales/en/editor.json";
 
+const settingsMock = vi.hoisted(() => ({ enabled: false, setOverrides: vi.fn() }));
 vi.mock("./chat-settings", async () => ({
   ...(await vi.importActual<typeof import("./chat-settings")>("./chat-settings")),
-  useChatSessionSettings: () => null,
+  useChatSessionSettings: ({ disabled }: { disabled?: boolean }) => settingsMock.enabled ? {
+    plan: false, overrides: {}, disabled, supportsPlan: true,
+    levels: [{ value: "high", label: "High" }],
+    tiers: [{ id: "priority", name: "Fast" }],
+    setPlan: vi.fn(), setOverrides: settingsMock.setOverrides,
+  } : null,
 }));
 
 // Uploads flow through the module-level coordinator, which calls
@@ -254,6 +260,8 @@ type ChatInputOnSend = React.ComponentProps<typeof ChatInput>["onSend"];
 type ChatInputCommit = Parameters<ChatInputOnSend>[2];
 
 beforeEach(() => {
+  settingsMock.enabled = false;
+  settingsMock.setOverrides.mockClear();
   dropHandlers.onDrop = null;
   editorProps.last = null;
   editorState.cleared = 0;
@@ -381,6 +389,24 @@ function element(props: Partial<React.ComponentProps<typeof ChatInput>>) {
     </I18nProvider>
   );
 }
+
+describe("ChatInput execution settings during a run", () => {
+  it("opens both parameter menus and selects values for subsequent messages", async () => {
+    settingsMock.enabled = true;
+    renderInput({ sessionId: null, isRunning: true, allowSubmitWhileRunning: true });
+    for (const [menu, option, expected] of [
+      ["Thinking level", "High", { thinking_level: "high" }],
+      ["Service tier", "Fast", { service_tier: "priority" }],
+    ] as const) {
+      fireEvent.click(screen.getByRole("button", { name: enChat.input.add_tooltip }));
+      const trigger = await screen.findByRole("menuitem", { name: menu });
+      expect(trigger).not.toHaveAttribute("aria-disabled", "true");
+      fireEvent.click(trigger);
+      fireEvent.click(await screen.findByRole("menuitem", { name: option }));
+      expect(settingsMock.setOverrides).toHaveBeenLastCalledWith(expected);
+    }
+  });
+});
 
 // MUL-4864: an uncreated chat has ONE draft per workspace. `selectedAgentId`
 // picks where the first send goes; it does not own the draft. Switching agent

@@ -618,7 +618,9 @@ export function ChatInput({
     sessionId,
     runtimeId,
     model,
-    disabled: disabled || noAgent || isRunning || submitting,
+    // Queued/running tasks keep their enqueue-time snapshot. Changes here
+    // apply to future messages, including messages queued during this run.
+    disabled: disabled || noAgent || submitting,
   });
 
   return (

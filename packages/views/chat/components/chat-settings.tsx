@@ -148,7 +148,10 @@ export function ChatSettingsMenu({
         .filter((choice) => choice.options.length > 0)
         .map(({ field, label, options }) => (
           <DropdownMenuSub key={field}>
-            <DropdownMenuSubTrigger disabled={disabled}>
+            <DropdownMenuSubTrigger
+              disabled={disabled}
+              className="data-disabled:pointer-events-none data-disabled:opacity-50"
+            >
               {label}
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
