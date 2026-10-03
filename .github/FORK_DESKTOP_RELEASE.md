@@ -25,15 +25,23 @@ Versions `0.6.1-1` and `0.6.1-2` predate the fork channel fix. Install a build
 containing the fix manually once; publishing a new release cannot change
 the updater code already running on those installations.
 
-Current fork macOS packages use ad-hoc signing and are not notarized. A
-correct feed and a successful metadata check do not establish that native
-macOS update installation works. Electron's Squirrel.Mac updater requires a
-consistent code-signing identity. For supported distribution, configure a
-Developer ID Application certificate and notarization credentials through
-GitHub Actions secrets, replace the workflow's forced ad-hoc identity, and
-verify an actual signed-version-to-signed-version update on a Mac before
-claiming end-to-end automatic updates. Never put private keys or passwords
-in source, issues, or release notes.
+Versions `0.6.1-1` and `0.6.1-2` were ad-hoc signed and not notarized. New
+fork macOS builds require repository secrets `CSC_LINK`, `CSC_KEY_PASSWORD`,
+`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`. The workflow
+passes them only to macOS packaging, requires Developer ID signing and
+notarization, and verifies the signature, stapled ticket, and Gatekeeper
+assessment before uploading. Missing credentials fail the build instead of
+silently producing an ad-hoc package. Windows packages remain unsigned.
+
+Releases remain drafts until both platforms finish uploading their packages
+and update metadata. Only then does the workflow publish the release as latest,
+so installed clients do not discover an incomplete release.
+
+A correct feed and a successful metadata check do not establish that native
+macOS update installation works. Verify an actual signed-version-to-signed-version
+update on a Mac before claiming end-to-end automatic updates. Keep the signing
+identity consistent across releases. Never put private keys or passwords in
+source, issues, or release notes.
 
 References: [Electron autoUpdater](https://www.electronjs.org/docs/latest/api/auto-updater),
 [Electron code signing](https://www.electronjs.org/docs/latest/tutorial/code-signing).
