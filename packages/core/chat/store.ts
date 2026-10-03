@@ -1,3 +1,4 @@
+import type { ChatExecutionOverrides } from "../types/chat";
 import { create } from "zustand";
 import type { StorageAdapter } from "../types";
 import type { Attachment } from "../types/attachment";
@@ -301,6 +302,8 @@ export interface PendingSendRestore {
 }
 
 export interface ChatState {
+  draftExecutionOverrides: ChatExecutionOverrides;
+  setDraftExecutionOverrides: (value: ChatExecutionOverrides) => void;
   draftPlanMode: boolean;
   setDraftPlanMode: (enabled: boolean) => void;
   isOpen: boolean;
@@ -391,7 +394,9 @@ export function createChatStore(options: ChatStoreOptions) {
   );
 
   const store = create<ChatState>((set, get) => ({
+    draftExecutionOverrides: {},
     draftPlanMode: false,
+    setDraftExecutionOverrides: (draftExecutionOverrides) => set({ draftExecutionOverrides }),
     setDraftPlanMode: (draftPlanMode) => set({ draftPlanMode }),
     isOpen: initialIsOpen,
     floatingChatEnabled: initialFloatingEnabled,
@@ -431,7 +436,7 @@ export function createChatStore(options: ChatStoreOptions) {
       } else {
         storage.removeItem(wsKey(SESSION_STORAGE_KEY));
       }
-      set({ activeSessionId: id, draftPlanMode: false });
+      set({ activeSessionId: id, draftPlanMode: false, draftExecutionOverrides: {} });
     },
     setSelectedAgentId: (id) => {
       logger.info("setSelectedAgentId", { from: get().selectedAgentId, to: id });
@@ -676,7 +681,8 @@ export function createChatStore(options: ChatStoreOptions) {
     });
     store.setState({
       activeSessionId: nextSession,
-    draftPlanMode: false,
+      draftExecutionOverrides: {},
+      draftPlanMode: false,
       selectedAgentId: nextAgent,
       selectedProjectId: nextProject,
       inputDrafts: nextDrafts,

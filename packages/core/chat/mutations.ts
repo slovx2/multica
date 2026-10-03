@@ -1,3 +1,4 @@
+import type { ChatExecutionOverrides } from "../types/chat";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { useWorkspaceId } from "../hooks";
@@ -106,7 +107,7 @@ export function useCreateChatSession() {
   const wsId = useWorkspaceId();
 
   return useMutation({
-    mutationFn: (data: { agent_id: string; title?: string; project_id?: string | null; plan_mode?: boolean }) => {
+    mutationFn: (data: { agent_id: string; title?: string; project_id?: string | null; execution_overrides?: ChatExecutionOverrides; plan_mode?: boolean }) => {
       logger.info("createChatSession.start", {
         agent_id: data.agent_id,
         project_id: data.project_id,

@@ -247,7 +247,7 @@
     "unarchive": "채팅 보관 해제"
   },
   "planning": {
-    "mode": "계획 모드",
+    "mode": "계획",
     "pending": "대기 중",
     "approved": "승인됨",
     "rejected": "거절됨",
@@ -261,5 +261,13 @@
     "links": "계획 대화",
     "issues": "이 대화의 태스크",
     "unsupported": "계획 모드는 Claude와 Codex만 지원합니다."
+  },
+  "execution": {
+    "parameters": "현재 채팅 설정",
+    "thinking": "추론 수준",
+    "tier": "서비스 등급",
+    "inherit": "기본값(상속)",
+    "clear": "채팅 설정 지우기",
+    "exit_plan": "계획 종료"
   }
 }

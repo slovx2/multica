@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, type ReactNode } from "react";
 import { Check, FolderKanban, Image as ImageIcon, Plus, X } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
 import {
@@ -18,6 +18,7 @@ import { ProjectIcon } from "../../projects/components/project-icon";
 import { useT } from "../../i18n";
 
 interface ChatAddMenuProps {
+  extraItems?: ReactNode;
   /** Called with each selected file — the caller routes it through the
    *  editor's upload extension, same path as paste / drag-drop. */
   onSelectFile?: (file: File) => void;
@@ -38,6 +39,7 @@ interface ChatAddMenuProps {
  * point without crowding the input bar.
  */
 export function ChatAddMenu({
+  extraItems,
   onSelectFile,
   projects = [],
   projectId,
@@ -74,6 +76,7 @@ export function ChatAddMenu({
           }
         />
         <DropdownMenuContent align="start" side="top" sideOffset={6}>
+          {extraItems}
           {onSelectFile && (
             <DropdownMenuItem onClick={() => inputRef.current?.click()}>
               <ImageIcon />

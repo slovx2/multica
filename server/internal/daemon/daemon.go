@@ -33,6 +33,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/selfexec"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/pkg/agent"
+	"github.com/multica-ai/multica/server/pkg/chatconfig"
 	"github.com/multica-ai/multica/server/pkg/planning"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 	"github.com/multica-ai/multica/server/pkg/redact"
@@ -7503,9 +7504,12 @@ func skillRefFromBundle(bundle SkillData) SkillRefData {
 // taskModelSelection is what a task actually launches with: the model
 // selector plus the capability overrides that survived validation.
 type taskModelSelection struct {
-	Model         string
-	ThinkingLevel string
-	ServiceTier   string
+	Model                 string
+	ThinkingLevel         string
+	ServiceTier           string
+	ChatOverrides         bool
+	FallbackThinkingLevel string
+	FallbackServiceTier   string
 }
 
 // resolveTaskModelSelection settles the model selector and its capability
@@ -7540,8 +7544,9 @@ func resolveTaskModelSelection(
 	runtimeCmd agent.Command,
 	sel taskModelSelection,
 	taskLog *slog.Logger,
+	overrides ...*chatconfig.Overrides,
 ) taskModelSelection {
-	capabilityChecksPending := sel.ThinkingLevel != "" || sel.ServiceTier != ""
+	capabilityChecksPending := sel.ThinkingLevel != "" || sel.ServiceTier != "" || (len(overrides) > 0 && overrides[0] != nil && !overrides[0].Empty())
 
 	read := false
 	var (
@@ -7612,6 +7617,12 @@ func resolveTaskModelSelection(
 			)
 			sel.ThinkingLevel = ""
 		}
+	}
+
+	if len(overrides) > 0 && overrides[0] != nil {
+		sel.ChatOverrides = true
+		sel.FallbackThinkingLevel, sel.FallbackServiceTier = sel.ThinkingLevel, sel.ServiceTier
+		sel = applyChatExecutionOverrides(sel, *overrides[0], provider, loadCatalog, taskLog)
 	}
 
 	return sel
@@ -8666,7 +8677,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		serviceTier = task.Agent.ServiceTier
 	}
 	selection := resolveTaskModelSelection(ctx, provider, agent.NewCommand(entry.Path, profileFixedArgs),
-		taskModelSelection{Model: model, ThinkingLevel: thinkingLevel, ServiceTier: serviceTier}, taskLog)
+		taskModelSelection{Model: model, ThinkingLevel: thinkingLevel, ServiceTier: serviceTier}, taskLog, task.ExecutionOverrides)
 	model, thinkingLevel, serviceTier = selection.Model, selection.ThinkingLevel, selection.ServiceTier
 
 	var idleWatchdogTimeout time.Duration
@@ -8788,7 +8799,10 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// Shared across the resume-retry below so the retry's transcript rows
 	// keep ascending seq values for the same task.
 	var msgSeq atomic.Int32
-	result, tools, err := d.executeAndDrain(ctx, backend, prompt, execOpts, taskLog, task.ID, env.CodexHome, &msgSeq)
+	execute := func(options agent.ExecOptions) (agent.Result, int32, error) {
+		return d.executeAndDrain(ctx, backend, prompt, options, taskLog, task.ID, env.CodexHome, &msgSeq)
+	}
+	result, tools, err := executeWithChatOverrideFallback(&execOpts, selection, execute, taskLog)
 	if err != nil {
 		return TaskResult{}, err
 	}

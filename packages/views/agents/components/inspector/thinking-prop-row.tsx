@@ -112,7 +112,7 @@ export function ThinkingSettingField({
   );
 }
 
-function pickModelEntry(
+export function pickModelEntry(
   models: RuntimeModel[],
   model: string,
   provider: string,

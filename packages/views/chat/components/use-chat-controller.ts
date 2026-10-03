@@ -451,6 +451,7 @@ export function useChatController(opts?: { isActive?: boolean }) {
             title: deriveChatTitle(titleSeed),
             project_id: activeProjectId,
             plan_mode: useChatStore.getState().draftPlanMode,
+            execution_overrides: useChatStore.getState().draftExecutionOverrides,
           });
           return session.id;
         } finally {

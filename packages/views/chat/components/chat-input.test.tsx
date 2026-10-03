@@ -609,6 +609,13 @@ describe("ChatInput project context", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("keeps context tags on a single shrinking row", () => {
+    const { container } = renderInput({ projects: [sampleProject], projectId: "project-alpha", onProjectChange: vi.fn() });
+    const row = container.querySelector('[data-slot="chat-context-tags"]');
+    expect(row).toHaveClass("flex-nowrap", "min-w-0", "overflow-hidden");
+    expect(row).not.toHaveClass("flex-wrap");
+  });
+
   it("renders the selected project chip and forwards context changes", () => {
     const onProjectChange = vi.fn();
     renderInput({

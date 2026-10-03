@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/multica-ai/multica/server/pkg/planning"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -19,8 +18,10 @@ import (
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
+	"github.com/multica-ai/multica/server/pkg/chatconfig"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/dbid"
+	"github.com/multica-ai/multica/server/pkg/planning"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
@@ -33,10 +34,11 @@ const chatSessionTitleMaxLen = 200
 // ---------------------------------------------------------------------------
 
 type CreateChatSessionRequest struct {
-	PlanMode  bool    `json:"plan_mode"`
-	AgentID   string  `json:"agent_id"`
-	Title     string  `json:"title"`
-	ProjectID *string `json:"project_id"`
+	ExecutionOverrides chatconfig.Overrides `json:"execution_overrides"`
+	PlanMode           bool                 `json:"plan_mode"`
+	AgentID            string               `json:"agent_id"`
+	Title              string               `json:"title"`
+	ProjectID          *string              `json:"project_id"`
 }
 
 func (h *Handler) CreateChatSession(w http.ResponseWriter, r *http.Request) {
@@ -151,6 +153,13 @@ func (h *Handler) CreateChatSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if !req.ExecutionOverrides.Empty() {
+		session, err = qtx.UpdateChatExecutionOverrides(r.Context(), db.UpdateChatExecutionOverridesParams{ID: session.ID, WorkspaceID: session.WorkspaceID, ExecutionOverrides: req.ExecutionOverrides.JSON()})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to save execution overrides")
+			return
+		}
+	}
 	session, err = qtx.MarkChatSessionExplicitlyCreated(r.Context(), session.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to mark chat session explicit")
@@ -209,20 +218,21 @@ func (h *Handler) ListChatSessions(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			resp = append(resp, ChatSessionResponse{
-				ID:          uuidToString(s.ID),
-				WorkspaceID: uuidToString(s.WorkspaceID),
-				AgentID:     uuidToString(s.AgentID),
-				CreatorID:   uuidToString(s.CreatorID),
-				ProjectID:   uuidToPtr(s.ProjectID),
-				PlanMode:    s.PlanMode,
-				Title:       s.Title,
-				Status:      s.Status,
-				HasUnread:   s.UnreadCount > 0,
-				UnreadCount: int(s.UnreadCount),
-				LastMessage: buildChatLastMessage(s.LastMessageAt, s.LastMessageContent, s.LastMessageRole, s.LastMessageFailureReason, s.LastMessageKind),
-				Pinned:      s.PinnedAt.Valid,
-				CreatedAt:   timestampToString(s.CreatedAt),
-				UpdatedAt:   timestampToString(s.UpdatedAt),
+				ID:                 uuidToString(s.ID),
+				WorkspaceID:        uuidToString(s.WorkspaceID),
+				AgentID:            uuidToString(s.AgentID),
+				CreatorID:          uuidToString(s.CreatorID),
+				ProjectID:          uuidToPtr(s.ProjectID),
+				PlanMode:           s.PlanMode,
+				ExecutionOverrides: chatconfig.Decode(s.ExecutionOverrides),
+				Title:              s.Title,
+				Status:             s.Status,
+				HasUnread:          s.UnreadCount > 0,
+				UnreadCount:        int(s.UnreadCount),
+				LastMessage:        buildChatLastMessage(s.LastMessageAt, s.LastMessageContent, s.LastMessageRole, s.LastMessageFailureReason, s.LastMessageKind),
+				Pinned:             s.PinnedAt.Valid,
+				CreatedAt:          timestampToString(s.CreatedAt),
+				UpdatedAt:          timestampToString(s.UpdatedAt),
 			})
 		}
 	} else {
@@ -240,20 +250,21 @@ func (h *Handler) ListChatSessions(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			resp = append(resp, ChatSessionResponse{
-				ID:          uuidToString(s.ID),
-				WorkspaceID: uuidToString(s.WorkspaceID),
-				AgentID:     uuidToString(s.AgentID),
-				CreatorID:   uuidToString(s.CreatorID),
-				ProjectID:   uuidToPtr(s.ProjectID),
-				PlanMode:    s.PlanMode,
-				Title:       s.Title,
-				Status:      s.Status,
-				HasUnread:   s.UnreadCount > 0,
-				UnreadCount: int(s.UnreadCount),
-				LastMessage: buildChatLastMessage(s.LastMessageAt, s.LastMessageContent, s.LastMessageRole, s.LastMessageFailureReason, s.LastMessageKind),
-				Pinned:      s.PinnedAt.Valid,
-				CreatedAt:   timestampToString(s.CreatedAt),
-				UpdatedAt:   timestampToString(s.UpdatedAt),
+				ID:                 uuidToString(s.ID),
+				WorkspaceID:        uuidToString(s.WorkspaceID),
+				AgentID:            uuidToString(s.AgentID),
+				CreatorID:          uuidToString(s.CreatorID),
+				ProjectID:          uuidToPtr(s.ProjectID),
+				PlanMode:           s.PlanMode,
+				ExecutionOverrides: chatconfig.Decode(s.ExecutionOverrides),
+				Title:              s.Title,
+				Status:             s.Status,
+				HasUnread:          s.UnreadCount > 0,
+				UnreadCount:        int(s.UnreadCount),
+				LastMessage:        buildChatLastMessage(s.LastMessageAt, s.LastMessageContent, s.LastMessageRole, s.LastMessageFailureReason, s.LastMessageKind),
+				Pinned:             s.PinnedAt.Valid,
+				CreatedAt:          timestampToString(s.CreatedAt),
+				UpdatedAt:          timestampToString(s.UpdatedAt),
 			})
 		}
 	}
@@ -358,9 +369,10 @@ func (h *Handler) GetChatSession(w http.ResponseWriter, r *http.Request) {
 }
 
 type UpdateChatSessionRequest struct {
-	PlanMode  *bool           `json:"plan_mode"`
-	Title     *string         `json:"title"`
-	ProjectID json.RawMessage `json:"project_id"`
+	ExecutionOverrides *chatconfig.Overrides `json:"execution_overrides"`
+	PlanMode           *bool                 `json:"plan_mode"`
+	Title              *string               `json:"title"`
+	ProjectID          json.RawMessage       `json:"project_id"`
 }
 
 // UpdateChatSession updates one user-editable field on a chat session. Title
@@ -393,8 +405,11 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 	if req.PlanMode != nil {
 		fields++
 	}
+	if req.ExecutionOverrides != nil {
+		fields++
+	}
 	if fields != 1 {
-		writeError(w, http.StatusBadRequest, "exactly one of title, project_id or plan_mode is required")
+		writeError(w, http.StatusBadRequest, "exactly one of title, project_id, plan_mode or execution_overrides is required")
 		return
 	}
 
@@ -408,7 +423,9 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 		err     error
 	)
 	var projectIDChanged bool
-	if req.PlanMode != nil {
+	if req.ExecutionOverrides != nil {
+		updated, err = h.Queries.UpdateChatExecutionOverrides(r.Context(), db.UpdateChatExecutionOverridesParams{ID: session.ID, WorkspaceID: session.WorkspaceID, ExecutionOverrides: req.ExecutionOverrides.JSON()})
+	} else if req.PlanMode != nil {
 		if !h.validateChatPlanMode(w, r, session.AgentID, *req.PlanMode) {
 			return
 		}
@@ -485,10 +502,11 @@ func (h *Handler) UpdateChatSession(w http.ResponseWriter, r *http.Request) {
 
 	resolvedSessionID := uuidToString(updated.ID)
 	payload := protocol.ChatSessionUpdatedPayload{
-		PlanMode:      req.PlanMode,
-		ChatSessionID: resolvedSessionID,
-		Title:         updated.Title,
-		UpdatedAt:     timestampToString(updated.UpdatedAt),
+		ExecutionOverrides: req.ExecutionOverrides,
+		PlanMode:           req.PlanMode,
+		ChatSessionID:      resolvedSessionID,
+		Title:              updated.Title,
+		UpdatedAt:          timestampToString(updated.UpdatedAt),
 	}
 	if projectIDChanged {
 		projectID := uuidToPtr(updated.ProjectID)
@@ -1989,14 +2007,15 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type ChatSessionResponse struct {
-	PlanMode    bool    `json:"plan_mode"`
-	ID          string  `json:"id"`
-	WorkspaceID string  `json:"workspace_id"`
-	AgentID     string  `json:"agent_id"`
-	CreatorID   string  `json:"creator_id"`
-	ProjectID   *string `json:"project_id"`
-	Title       string  `json:"title"`
-	Status      string  `json:"status"`
+	ExecutionOverrides chatconfig.Overrides `json:"execution_overrides"`
+	PlanMode           bool                 `json:"plan_mode"`
+	ID                 string               `json:"id"`
+	WorkspaceID        string               `json:"workspace_id"`
+	AgentID            string               `json:"agent_id"`
+	CreatorID          string               `json:"creator_id"`
+	ProjectID          *string              `json:"project_id"`
+	Title              string               `json:"title"`
+	Status             string               `json:"status"`
 	// Only populated by list endpoints — single-session fetches return 0/false/nil.
 	// HasUnread is kept as a convenience (== UnreadCount > 0) for existing consumers.
 	HasUnread   bool             `json:"has_unread"`
@@ -2107,17 +2126,18 @@ type ChatMessageResponse struct {
 
 func chatSessionToResponse(s db.ChatSession) ChatSessionResponse {
 	return ChatSessionResponse{
-		ID:          uuidToString(s.ID),
-		WorkspaceID: uuidToString(s.WorkspaceID),
-		AgentID:     uuidToString(s.AgentID),
-		CreatorID:   uuidToString(s.CreatorID),
-		ProjectID:   uuidToPtr(s.ProjectID),
-		PlanMode:    s.PlanMode,
-		Title:       s.Title,
-		Status:      s.Status,
-		Pinned:      s.PinnedAt.Valid,
-		CreatedAt:   timestampToString(s.CreatedAt),
-		UpdatedAt:   timestampToString(s.UpdatedAt),
+		ID:                 uuidToString(s.ID),
+		WorkspaceID:        uuidToString(s.WorkspaceID),
+		AgentID:            uuidToString(s.AgentID),
+		CreatorID:          uuidToString(s.CreatorID),
+		ProjectID:          uuidToPtr(s.ProjectID),
+		PlanMode:           s.PlanMode,
+		ExecutionOverrides: chatconfig.Decode(s.ExecutionOverrides),
+		Title:              s.Title,
+		Status:             s.Status,
+		Pinned:             s.PinnedAt.Valid,
+		CreatedAt:          timestampToString(s.CreatedAt),
+		UpdatedAt:          timestampToString(s.UpdatedAt),
 	}
 }
 

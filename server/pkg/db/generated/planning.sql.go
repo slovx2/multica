@@ -233,7 +233,7 @@ func (q *Queries) ListChatPlanningIssues(ctx context.Context, arg ListChatPlanni
 }
 
 const listIssuePlanningChats = `-- name: ListIssuePlanningChats :many
-SELECT cs.id, cs.workspace_id, cs.agent_id, cs.creator_id, cs.title, cs.session_id, cs.work_dir, cs.status, cs.created_at, cs.updated_at, cs.unread_since, cs.runtime_id, cs.last_read_at, cs.is_agent_intro, cs.pinned_at, cs.project_id, cs.explicitly_created_at, cs.plan_mode FROM issue_chat_session l JOIN chat_session cs ON cs.id = l.chat_session_id AND cs.workspace_id = l.workspace_id
+SELECT cs.id, cs.workspace_id, cs.agent_id, cs.creator_id, cs.title, cs.session_id, cs.work_dir, cs.status, cs.created_at, cs.updated_at, cs.unread_since, cs.runtime_id, cs.last_read_at, cs.is_agent_intro, cs.pinned_at, cs.project_id, cs.explicitly_created_at, cs.plan_mode, cs.execution_overrides FROM issue_chat_session l JOIN chat_session cs ON cs.id = l.chat_session_id AND cs.workspace_id = l.workspace_id
 WHERE l.workspace_id = $1 AND l.issue_id = $2 ORDER BY l.created_at DESC
 `
 
@@ -270,6 +270,7 @@ func (q *Queries) ListIssuePlanningChats(ctx context.Context, arg ListIssuePlann
 			&i.ProjectID,
 			&i.ExplicitlyCreatedAt,
 			&i.PlanMode,
+			&i.ExecutionOverrides,
 		); err != nil {
 			return nil, err
 		}
@@ -355,7 +356,7 @@ func (q *Queries) UnlinkPlanningChat(ctx context.Context, arg UnlinkPlanningChat
 
 const updateChatPlanMode = `-- name: UpdateChatPlanMode :one
 UPDATE chat_session SET plan_mode = $3, updated_at = now()
-WHERE id = $1 AND workspace_id = $2 RETURNING id, workspace_id, agent_id, creator_id, title, session_id, work_dir, status, created_at, updated_at, unread_since, runtime_id, last_read_at, is_agent_intro, pinned_at, project_id, explicitly_created_at, plan_mode
+WHERE id = $1 AND workspace_id = $2 RETURNING id, workspace_id, agent_id, creator_id, title, session_id, work_dir, status, created_at, updated_at, unread_since, runtime_id, last_read_at, is_agent_intro, pinned_at, project_id, explicitly_created_at, plan_mode, execution_overrides
 `
 
 type UpdateChatPlanModeParams struct {
@@ -386,6 +387,7 @@ func (q *Queries) UpdateChatPlanMode(ctx context.Context, arg UpdateChatPlanMode
 		&i.ProjectID,
 		&i.ExplicitlyCreatedAt,
 		&i.PlanMode,
+		&i.ExecutionOverrides,
 	)
 	return i, err
 }

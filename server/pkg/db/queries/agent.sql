@@ -331,7 +331,7 @@ SELECT
     sqlc.narg(handoff_note),
     sqlc.narg(squad_id),
     CASE WHEN sqlc.narg('planning_chat_session_id')::uuid IS NOT NULL THEN
-        (SELECT jsonb_build_object('plan_mode', cs.plan_mode) FROM chat_session cs WHERE cs.id = sqlc.narg('planning_chat_session_id')::uuid)
+        (SELECT jsonb_build_object('plan_mode', cs.plan_mode, 'execution_overrides', cs.execution_overrides) FROM chat_session cs WHERE cs.id = sqlc.narg('planning_chat_session_id')::uuid)
         || jsonb_strip_nulls(jsonb_build_object('head_sha', NULLIF(sqlc.narg('head_sha')::text, '')))
     ELSE CASE
         WHEN COALESCE(sqlc.narg('head_sha')::text, '') <> ''

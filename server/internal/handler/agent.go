@@ -27,6 +27,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/pkg/agent"
+	"github.com/multica-ai/multica/server/pkg/chatconfig"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 	"github.com/multica-ai/multica/server/pkg/remotemcp"
@@ -358,6 +359,7 @@ type TaskCancellationActor struct {
 }
 
 type AgentTaskResponse struct {
+	ExecutionOverrides       *chatconfig.Overrides  `json:"execution_overrides,omitempty"`
 	PlanMode                 bool                   `json:"plan_mode"`
 	StartClaimSupported      bool                   `json:"start_claim_supported,omitempty"`
 	CancelledByCommentChange bool                   `json:"cancelled_by_comment_change,omitempty"`

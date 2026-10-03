@@ -251,7 +251,7 @@
     "delete": "Supprimer la discussion"
   },
   "planning": {
-    "mode": "Mode plan",
+    "mode": "Plan",
     "pending": "En attente",
     "approved": "Approuvé",
     "rejected": "Refusé",
@@ -265,5 +265,13 @@
     "links": "Chats de planification",
     "issues": "Tâches de ce chat",
     "unsupported": "Le mode plan est disponible uniquement avec Claude et Codex."
+  },
+  "execution": {
+    "parameters": "Paramètres du chat",
+    "thinking": "Niveau de réflexion",
+    "tier": "Niveau de service",
+    "inherit": "Par défaut (hériter)",
+    "clear": "Effacer les paramètres du chat",
+    "exit_plan": "Quitter le plan"
   }
 }

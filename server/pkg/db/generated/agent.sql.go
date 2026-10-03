@@ -2266,7 +2266,7 @@ SELECT
     $10,
     $11,
     CASE WHEN $12::uuid IS NOT NULL THEN
-        (SELECT jsonb_build_object('plan_mode', cs.plan_mode) FROM chat_session cs WHERE cs.id = $12::uuid)
+        (SELECT jsonb_build_object('plan_mode', cs.plan_mode, 'execution_overrides', cs.execution_overrides) FROM chat_session cs WHERE cs.id = $12::uuid)
         || jsonb_strip_nulls(jsonb_build_object('head_sha', NULLIF($13::text, '')))
     ELSE CASE
         WHEN COALESCE($13::text, '') <> ''

@@ -558,6 +558,7 @@ type ChatSession struct {
 	ProjectID           pgtype.UUID        `json:"project_id"`
 	ExplicitlyCreatedAt pgtype.Timestamptz `json:"explicitly_created_at"`
 	PlanMode            bool               `json:"plan_mode"`
+	ExecutionOverrides  []byte             `json:"execution_overrides"`
 }
 
 type ClientUsageDaily struct {
