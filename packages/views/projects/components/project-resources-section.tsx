@@ -147,7 +147,9 @@ export function ProjectResourcesSection({ projectId }: { projectId: string }) {
   // The one thing the client must still check up front: whether this server
   // performs that gate at all. One declared boolean, no inference — servers
   // that predate it drop execution_mode and answer 201.
-  const serverValidatesWorktree = useConfigStore((state) => state.localWorktreeSupported);
+  const serverValidatesWorktree = useConfigStore(
+    (state) => state.localWorktreeSupported,
+  );
   // Keyed on the resource's OWN daemon, not the machine the browser happens to
   // be on: a resource is pinned to one machine, and its mode can legitimately
   // be changed from the web app or from a different device. Using the local
@@ -180,7 +182,9 @@ export function ProjectResourcesSection({ projectId }: { projectId: string }) {
 
   const repoQuery = repoSearch.trim().toLowerCase();
   const filteredRepos =
-    workspace?.repos?.filter((repo) => repo.url.toLowerCase().includes(repoQuery)) ?? [];
+    workspace?.repos?.filter((repo) =>
+      repo.url.toLowerCase().includes(repoQuery),
+    ) ?? [];
 
   const handleAttach = async (url: string, ref?: string) => {
     try {
@@ -192,7 +196,10 @@ export function ProjectResourcesSection({ projectId }: { projectId: string }) {
       });
       toast.success(t(($) => $.resources.toast_attached));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : t(($) => $.resources.toast_attach_failed);
+      const msg =
+        err instanceof Error
+          ? err.message
+          : t(($) => $.resources.toast_attach_failed);
       toast.error(msg);
     }
   };
@@ -233,7 +240,9 @@ export function ProjectResourcesSection({ projectId }: { projectId: string }) {
           localValidationMessage(validation, {
             not_absolute: t(($) => $.resources.local_validate_not_absolute),
             not_found: t(($) => $.resources.local_validate_not_found),
-            not_a_directory: t(($) => $.resources.local_validate_not_a_directory),
+            not_a_directory: t(
+              ($) => $.resources.local_validate_not_a_directory,
+            ),
             not_readable: t(($) => $.resources.local_validate_not_readable),
             not_writable: t(($) => $.resources.local_validate_not_writable),
             unsupported: t(($) => $.resources.local_validate_unsupported),
@@ -397,13 +406,35 @@ export function ProjectResourcesSection({ projectId }: { projectId: string }) {
             <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
               {resources.map((resource) => (
                 <ResourceRow
-                  onScopeChange={(scope) => updateResource.mutate({ resourceId: resource.id, data: { resource_ref: { ...resource.resource_ref, scope } } }, { onError: (error) => toast.error(error.message) })}
+                  onSyncChange={(auto_sync) =>
+                    updateResource.mutate(
+                      {
+                        resourceId: resource.id,
+                        data: {
+                          resource_ref: { ...resource.resource_ref, auto_sync },
+                        },
+                      },
+                      { onError: (error) => toast.error(error.message) },
+                    )
+                  }
+                  onScopeChange={(scope) =>
+                    updateResource.mutate(
+                      {
+                        resourceId: resource.id,
+                        data: {
+                          resource_ref: { ...resource.resource_ref, scope },
+                        },
+                      },
+                      { onError: (error) => toast.error(error.message) },
+                    )
+                  }
                   key={resource.id}
                   resource={resource}
                   githubRepoDescription={
                     isGithubRef(resource)
-                      ? workspace?.repos?.find((repo) => repo.url === resource.resource_ref.url)
-                          ?.description
+                      ? workspace?.repos?.find(
+                          (repo) => repo.url === resource.resource_ref.url,
+                        )?.description
                       : undefined
                   }
                   localDaemonId={localDaemonId}
@@ -461,8 +492,12 @@ export function ProjectResourcesSection({ projectId }: { projectId: string }) {
                       type="text"
                       value={repoSearch}
                       onChange={(e) => setRepoSearch(e.target.value)}
-                      aria-label={t(($) => $.resources.repos_search_placeholder)}
-                      placeholder={t(($) => $.resources.repos_search_placeholder)}
+                      aria-label={t(
+                        ($) => $.resources.repos_search_placeholder,
+                      )}
+                      placeholder={t(
+                        ($) => $.resources.repos_search_placeholder,
+                      )}
                       className="h-8 w-full rounded-md border bg-transparent pl-7 pr-2 text-caption outline-none placeholder:text-muted-foreground focus-visible:ring-1 focus-visible:ring-ring"
                     />
                   </div>
@@ -500,7 +535,9 @@ export function ProjectResourcesSection({ projectId }: { projectId: string }) {
                                   </span>
                                 }
                               />
-                              <TooltipContent side="top">{repo.url}</TooltipContent>
+                              <TooltipContent side="top">
+                                {repo.url}
+                              </TooltipContent>
                             </Tooltip>
                             {repo.description?.trim() && (
                               <span className="block truncate text-micro text-muted-foreground">
@@ -629,6 +666,7 @@ function worktreeUnavailableReason(
 }
 
 interface ResourceRowProps {
+  onSyncChange: (mode: "off" | "fetch" | "fetch_ff") => void;
   onScopeChange: (scope: "all" | "chat") => void;
   resource: ProjectResource;
   githubRepoDescription?: string;
@@ -643,6 +681,7 @@ interface ResourceRowProps {
 }
 
 function ResourceRow({
+  onSyncChange,
   onScopeChange,
   resource,
   githubRepoDescription,
@@ -658,7 +697,9 @@ function ResourceRow({
     // Workspace repository descriptions are source-of-truth metadata. They stay
     // live here rather than being copied into the resource label, while an
     // explicit resource label remains the user's preferred primary text.
-    const description = resource.label ? undefined : githubRepoDescription?.trim();
+    const description = resource.label
+      ? undefined
+      : githubRepoDescription?.trim();
     const tooltip = ref.ref ? `${ref.url}\nref: ${ref.ref}` : ref.url;
     return (
       <div className="text-caption group">
@@ -678,7 +719,9 @@ function ResourceRow({
                   </a>
                 }
               />
-              <TooltipContent side="top" className="whitespace-pre-line">{tooltip}</TooltipContent>
+              <TooltipContent side="top" className="whitespace-pre-line">
+                {tooltip}
+              </TooltipContent>
             </Tooltip>
             {description && (
               <span className="block truncate text-micro text-muted-foreground">
@@ -737,6 +780,7 @@ function ResourceRow({
   if (isLocalDirectoryRef(resource)) {
     return (
       <LocalDirectoryRow
+        onSyncChange={onSyncChange}
         onScopeChange={onScopeChange}
         resource={resource}
         localDaemonId={localDaemonId}
@@ -764,6 +808,7 @@ function ResourceRow({
 }
 
 interface LocalDirectoryRowProps {
+  onSyncChange: (mode: "off" | "fetch" | "fetch_ff") => void;
   onScopeChange: (scope: "all" | "chat") => void;
   resource: ProjectResource & { resource_ref: LocalDirectoryResourceRef };
   localDaemonId: string | null;
@@ -774,6 +819,7 @@ interface LocalDirectoryRowProps {
 }
 
 function LocalDirectoryRow({
+  onSyncChange,
   onScopeChange,
   resource,
   localDaemonId,
@@ -839,7 +885,26 @@ function LocalDirectoryRow({
           </TooltipContent>
         </Tooltip>
       )}
-      <select aria-label={t(($) => $.resources.scope)} value={ref.scope ?? "all"} onChange={(e) => onScopeChange(e.target.value === "chat" ? "chat" : "all")} className="rounded-md border bg-background px-1 py-0.5 text-caption">
+      <select
+        aria-label={t(($) => $.resources.auto_sync)}
+        value={ref.auto_sync ?? "fetch_ff"}
+        onChange={(e) =>
+          onSyncChange(e.target.value as "off" | "fetch" | "fetch_ff")
+        }
+        className="rounded-md border bg-background px-1 py-0.5 text-caption"
+      >
+        <option value="off">{t(($) => $.resources.sync_off)}</option>
+        <option value="fetch">{t(($) => $.resources.sync_fetch)}</option>
+        <option value="fetch_ff">{t(($) => $.resources.sync_ff)}</option>
+      </select>
+      <select
+        aria-label={t(($) => $.resources.scope)}
+        value={ref.scope ?? "all"}
+        onChange={(e) =>
+          onScopeChange(e.target.value === "chat" ? "chat" : "all")
+        }
+        className="rounded-md border bg-background px-1 py-0.5 text-caption"
+      >
         <option value="all">{t(($) => $.resources.scope_all)}</option>
         <option value="chat">{t(($) => $.resources.scope_chat)}</option>
       </select>

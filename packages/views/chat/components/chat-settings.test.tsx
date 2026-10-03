@@ -65,7 +65,7 @@ function SettingsHarness({ sessionId, model, enabled = true }: { sessionId: stri
   const settings = useChatSessionSettings({ enabled, sessionId, runtimeId: "rt", model });
   return <>
     <div data-testid="tags"><ChatSettingsTags settings={settings} /></div>
-    <ChatAddMenu extraItems={<ChatSettingsMenu settings={settings} />} />
+    <ChatAddMenu extraItems={<ChatSettingsMenu settings={settings} onCompact={() => {}} />} />
   </>;
 }
 
@@ -196,6 +196,16 @@ describe("chat session settings", () => {
     expect(await screen.findByText("high · Fast")).toBeInTheDocument();
     expect(mocks.updateAgent).not.toHaveBeenCalled();
     expect(useChatStore.getState().draftExecutionOverrides).toEqual({});
+  });
+
+  it("disables compaction for an unsupported provider and explains why", async () => {
+    mocks.provider = "other";
+    mocks.get.mockResolvedValue({id:"session"});
+    mount("session");
+    await openMenu();
+    const item = await screen.findByRole("menuitem", {name:"Compact context"});
+    expect(item).toHaveAttribute("aria-disabled", "true");
+    expect(item).toHaveAttribute("title", enChat.context.unsupported);
   });
 
   it("clears the draft overrides when moving to another chat", () => {

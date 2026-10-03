@@ -843,6 +843,10 @@ func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "failed to delete planning data")
 		return
 	}
+	if err := qtx.DeleteChatDirectorySync(r.Context(), db.DeleteChatDirectorySyncParams{ChatSessionID: session.ID, WorkspaceID: session.WorkspaceID}); err != nil {
+		writeError(w, 500, "failed to delete chat sync requests")
+		return
+	}
 	if err := qtx.DeleteChatSession(r.Context(), db.DeleteChatSessionParams{
 		ID:          session.ID,
 		WorkspaceID: session.WorkspaceID,
@@ -886,6 +890,7 @@ func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type SendChatMessageRequest struct {
+	Action        string             `json:"action,omitempty"`
 	CardDecision  *planning.Decision `json:"card_decision,omitempty"`
 	Content       string             `json:"content"`
 	AttachmentIDs []string           `json:"attachment_ids"`
@@ -927,7 +932,7 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Content == "" && req.CardDecision == nil {
+	if req.Content == "" && req.CardDecision == nil && req.Action == "" {
 		writeError(w, http.StatusBadRequest, "content is required")
 		return
 	}
@@ -996,6 +1001,19 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Action != "" {
+		if req.Action != "compact" || req.Content != "" || len(attachmentIDs) > 0 || req.CardDecision != nil {
+			writeError(w, http.StatusBadRequest, "invalid chat action")
+			return
+		}
+		sent, err := h.TaskService.SendDirectChatAction(r.Context(), session, agent, parseUUID(userID), req.Action)
+		if err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, SendChatMessageResponse{TaskID: uuidToString(sent.Task.ID), SupportsQueue: true, Queued: sent.Queued, CreatedAt: timestampToString(sent.Task.CreatedAt)})
+		return
+	}
 	// Detect whether this is the very first human message in the session,
 	// BEFORE we insert the new row. This scopes LLM auto-titling (MUL-4295) to
 	// the opening turn: we upgrade the default/original title exactly once, off
@@ -1402,6 +1420,7 @@ func waitReasonForStatus(status string, reason pgtype.Text) string {
 }
 
 type QueuedChatTaskResponse struct {
+	Action    string `json:"action,omitempty"`
 	TaskID    string `json:"task_id"`
 	Status    string `json:"status"`
 	CreatedAt string `json:"created_at"`
@@ -1732,6 +1751,7 @@ func (h *Handler) GetPendingChatTask(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		queued = append(queued, QueuedChatTaskResponse{
+			Action:    task.Action,
 			TaskID:    uuidToString(task.ID),
 			Status:    task.Status,
 			CreatedAt: timestampToString(task.CreatedAt),
@@ -2012,6 +2032,7 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type ChatSessionResponse struct {
+	ContextState       json.RawMessage      `json:"context_state"`
 	ExecutionOverrides chatconfig.Overrides `json:"execution_overrides"`
 
 	PlanMode    bool    `json:"plan_mode"`
@@ -2132,17 +2153,18 @@ type ChatMessageResponse struct {
 
 func chatSessionToResponse(s db.ChatSession) ChatSessionResponse {
 	return ChatSessionResponse{
-		ID:          uuidToString(s.ID),
-		WorkspaceID: uuidToString(s.WorkspaceID),
-		AgentID:     uuidToString(s.AgentID),
-		CreatorID:   uuidToString(s.CreatorID),
-		ProjectID:   uuidToPtr(s.ProjectID),
-		PlanMode:    s.PlanMode,
-		Title:       s.Title,
-		Status:      s.Status,
-		Pinned:      s.PinnedAt.Valid,
-		CreatedAt:   timestampToString(s.CreatedAt),
-		UpdatedAt:   timestampToString(s.UpdatedAt),
+		ContextState: s.ContextState,
+		ID:           uuidToString(s.ID),
+		WorkspaceID:  uuidToString(s.WorkspaceID),
+		AgentID:      uuidToString(s.AgentID),
+		CreatorID:    uuidToString(s.CreatorID),
+		ProjectID:    uuidToPtr(s.ProjectID),
+		PlanMode:     s.PlanMode,
+		Title:        s.Title,
+		Status:       s.Status,
+		Pinned:       s.PinnedAt.Valid,
+		CreatedAt:    timestampToString(s.CreatedAt),
+		UpdatedAt:    timestampToString(s.UpdatedAt),
 
 		ExecutionOverrides: chatconfig.Decode(s.ExecutionOverrides),
 	}

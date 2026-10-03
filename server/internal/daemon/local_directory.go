@@ -37,6 +37,7 @@ type localDirectoryRef struct {
 	DaemonID      string `json:"daemon_id"`
 	Label         string `json:"label,omitempty"`
 	ExecutionMode string `json:"execution_mode,omitempty"`
+	AutoSync      string `json:"auto_sync,omitempty"`
 }
 
 // localDirectoryAssignment is the resolved view of a task's local_directory
@@ -611,4 +612,25 @@ func (l *LocalPathLocker) releaser(realPath string, entry *pathLockEntry) func()
 			_ = realPath
 		})
 	}
+}
+
+// TryAcquire lets chat sync skip a busy writer without allocating a waiter.
+func (l *LocalPathLocker) TryAcquire(realPath, taskID string) func() {
+	if realPath == "" || taskID == "" {
+		return nil
+	}
+	l.mu.Lock()
+	entry := l.locks[realPath]
+	if entry == nil {
+		entry = &pathLockEntry{}
+		l.locks[realPath] = entry
+	}
+	l.mu.Unlock()
+	if !entry.mu.TryLock() {
+		return nil
+	}
+	entry.mu2.Lock()
+	entry.holderID = taskID
+	entry.mu2.Unlock()
+	return l.releaser(realPath, entry)
 }

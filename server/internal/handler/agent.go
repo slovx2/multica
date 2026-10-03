@@ -359,6 +359,7 @@ type TaskCancellationActor struct {
 }
 
 type AgentTaskResponse struct {
+	ChatAction               string                 `json:"chat_action,omitempty"`
 	ExecutionOverrides       *chatconfig.Overrides  `json:"execution_overrides,omitempty"`
 	PlanMode                 bool                   `json:"plan_mode"`
 	StartClaimSupported      bool                   `json:"start_claim_supported,omitempty"`

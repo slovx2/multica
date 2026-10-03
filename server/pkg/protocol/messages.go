@@ -7,6 +7,7 @@ import (
 )
 
 const (
+	DaemonCapabilityChatContextV1            = "chat-context-v1"
 	DaemonCapabilityChatExecutionOverridesV1 = "chat-execution-overrides-v1"
 
 	DaemonCapabilitySkillBundlesV1      = "skill-bundles-v1"
@@ -423,7 +424,13 @@ type DaemonHeartbeatRequestPayload struct {
 // The daemon reads this signal, prunes the stale runtime from its local state
 // and re-registers; without it the dead UUID would keep heartbeating until the
 // daemon process restarts.
+type DaemonHeartbeatPendingDirectorySync struct {
+	ID          string          `json:"id"`
+	ResourceRef json.RawMessage `json:"resource_ref"`
+}
+
 type DaemonHeartbeatAckPayload struct {
+	PendingDirectorySync    []DaemonHeartbeatPendingDirectorySync   `json:"pending_directory_sync,omitempty"`
 	RuntimeID               string                                  `json:"runtime_id"`
 	Status                  string                                  `json:"status"`
 	ServerCapabilities      []string                                `json:"server_capabilities,omitempty"`

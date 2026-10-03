@@ -1,5 +1,6 @@
 "use client";
 
+import { ChatContextBadge, CompactContextDialog, ChatDirectorySync } from "./chat-context";
 import { useChatSessionSettings, ChatSettingsMenu, ChatSettingsTags } from "./chat-settings";
 
 import type { ReactNode } from "react";
@@ -613,6 +614,7 @@ export function ChatInput({
     !isProjectUpdating;
   const selectedProject = projects.find((project) => project.id === projectId);
 
+  const [compactOpen, setCompactOpen] = useState(false);
   const settings = useChatSessionSettings({
     enabled: sessionId !== undefined,
     sessionId,
@@ -715,6 +717,8 @@ export function ChatInput({
               </>
             )}
             <ChatSettingsTags settings={settings} />
+            {sessionId && projectId && <ChatDirectorySync sessionId={sessionId} projectId={projectId} runtimeId={runtimeId} disabled={disabled} />}
+            <ChatContextBadge state={settings?.contextState} supported={settings?.supportsPlan === true} running={!!isRunning} />
           </div>
         )}
         <div className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
@@ -759,7 +763,7 @@ export function ChatInput({
               projectSelectionEnabled ||
               sessionId !== undefined) && (
               <ChatAddMenu
-                extraItems={<ChatSettingsMenu settings={settings} />}
+                extraItems={<ChatSettingsMenu settings={settings} onCompact={() => setCompactOpen(true)} />}
                 disabled={disabled || noAgent || submitting}
                 onSelectFile={uploadEnabled
                   ? (file) => editorRef.current?.uploadFile(file)
@@ -807,6 +811,7 @@ export function ChatInput({
             stopAriaLabel={t(($) => $.input.stop_tooltip)}
           />
         </div>
+        {sessionId && <CompactContextDialog key={sessionId} sessionId={sessionId} open={compactOpen} onOpenChange={setCompactOpen} />}
         {uploadEnabled && isDragOver && <FileDropOverlay />}
       </div>
     </div>

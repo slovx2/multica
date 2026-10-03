@@ -13,7 +13,7 @@ import (
 
 const updateChatExecutionOverrides = `-- name: UpdateChatExecutionOverrides :one
 UPDATE chat_session SET execution_overrides = $3, updated_at = now()
-WHERE id = $1 AND workspace_id = $2 RETURNING id, workspace_id, agent_id, creator_id, title, session_id, work_dir, status, created_at, updated_at, unread_since, runtime_id, last_read_at, is_agent_intro, pinned_at, project_id, explicitly_created_at, plan_mode, execution_overrides
+WHERE id = $1 AND workspace_id = $2 RETURNING id, workspace_id, agent_id, creator_id, title, session_id, work_dir, status, created_at, updated_at, unread_since, runtime_id, last_read_at, is_agent_intro, pinned_at, project_id, explicitly_created_at, plan_mode, execution_overrides, context_state
 `
 
 type UpdateChatExecutionOverridesParams struct {
@@ -45,6 +45,7 @@ func (q *Queries) UpdateChatExecutionOverrides(ctx context.Context, arg UpdateCh
 		&i.ExplicitlyCreatedAt,
 		&i.PlanMode,
 		&i.ExecutionOverrides,
+		&i.ContextState,
 	)
 	return i, err
 }

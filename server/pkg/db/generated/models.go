@@ -501,6 +501,17 @@ type ChatCard struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
+type ChatDirectorySync struct {
+	ID            pgtype.UUID        `json:"id"`
+	ChatSessionID pgtype.UUID        `json:"chat_session_id"`
+	WorkspaceID   pgtype.UUID        `json:"workspace_id"`
+	RuntimeID     pgtype.UUID        `json:"runtime_id"`
+	ResourceRef   []byte             `json:"resource_ref"`
+	Status        string             `json:"status"`
+	Result        []byte             `json:"result"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
 type ChatDraftRestore struct {
 	ID            pgtype.UUID        `json:"id"`
 	ChatSessionID pgtype.UUID        `json:"chat_session_id"`
@@ -559,6 +570,7 @@ type ChatSession struct {
 	ExplicitlyCreatedAt pgtype.Timestamptz `json:"explicitly_created_at"`
 	PlanMode            bool               `json:"plan_mode"`
 	ExecutionOverrides  []byte             `json:"execution_overrides"`
+	ContextState        []byte             `json:"context_state"`
 }
 
 type ClientUsageDaily struct {

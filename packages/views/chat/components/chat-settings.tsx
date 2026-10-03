@@ -34,13 +34,19 @@ interface SettingsProps {
 }
 
 export function useChatSessionSettings({
-  enabled, sessionId, runtimeId, model, disabled,
+  enabled,
+  sessionId,
+  runtimeId,
+  model,
+  disabled,
 }: SettingsProps) {
   const { t: tAgents } = useT("agents");
   const wsId = useWorkspaceId();
   const qc = useQueryClient();
   const runtimes = useQuery({ ...runtimeListOptions(wsId), enabled });
-  const runtime = enabled ? runtimes.data?.find((r) => r.id === runtimeId) : undefined;
+  const runtime = enabled
+    ? runtimes.data?.find((r) => r.id === runtimeId)
+    : undefined;
   const catalog = useQuery(
     runtimeModelsOptions(runtime?.status === "online" ? runtimeId : null),
   );
@@ -60,7 +66,12 @@ export function useChatSessionSettings({
     entry.service_tiers?.length
       ? [
           ...(supportsExplicitStandard
-            ? [{ id: "default", name: tAgents(($) => $.pickers.service_tier_standard) }]
+            ? [
+                {
+                  id: "default",
+                  name: tAgents(($) => $.pickers.service_tier_standard),
+                },
+              ]
             : []),
           ...entry.service_tiers.filter((tier) => tier.id !== "default"),
         ]
@@ -91,6 +102,13 @@ export function useChatSessionSettings({
       (sessionId ? session.data?.execution_overrides : draftOverrides) ?? {},
     levels,
     tiers,
+    contextState:
+      session.data?.context_state?.runtime_id &&
+      session.data.context_state.runtime_id !== runtimeId
+        ? undefined
+        : session.data?.context_state,
+    provider,
+    sessionId,
     supportsPlan: provider === "claude" || provider === "codex",
     disabled: disabled || update.isPending || (!!sessionId && !session.data),
     setPlan: (plan: boolean) =>
@@ -109,9 +127,11 @@ type ChatSettingsState = NonNullable<ReturnType<typeof useChatSessionSettings>>;
 export function ChatSettingsMenu({
   settings,
   includePlan = true,
+  onCompact,
 }: {
   settings: ChatSettingsState | null;
   includePlan?: boolean;
+  onCompact?: () => void;
 }) {
   const { t } = useT("chat");
   if (!settings) return null;
@@ -134,6 +154,17 @@ export function ChatSettingsMenu({
   ];
   return (
     <>
+      {onCompact && (
+        <DropdownMenuItem
+          disabled={disabled || !settings.sessionId || !settings.supportsPlan}
+          title={
+            !settings.supportsPlan ? t(($) => $.context.unsupported) : undefined
+          }
+          onClick={onCompact}
+        >
+          {t(($) => $.context.compact)}
+        </DropdownMenuItem>
+      )}
       {includePlan && (
         <DropdownMenuItem
           disabled={disabled || (!plan && !settings.supportsPlan)}

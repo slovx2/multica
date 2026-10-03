@@ -147,6 +147,7 @@ type localDirectoryRef struct {
 	DaemonID      string `json:"daemon_id"`
 	Label         string `json:"label,omitempty"`
 	ExecutionMode string `json:"execution_mode,omitempty"`
+	AutoSync      string `json:"auto_sync,omitempty"`
 }
 
 // requireWorktreeCapableDaemon rejects saving a local_directory ref that asks
@@ -292,6 +293,11 @@ func validateLocalDirectoryRef(ref json.RawMessage) (json.RawMessage, error) {
 		return nil, errors.New("local_directory: daemon_id is required")
 	}
 	payload.Label = strings.TrimSpace(payload.Label)
+	switch payload.AutoSync {
+	case "", "off", "fetch", "fetch_ff":
+	default:
+		return nil, fmt.Errorf("local_directory: auto_sync must be off, fetch, or fetch_ff")
+	}
 	payload.ExecutionMode = strings.TrimSpace(payload.ExecutionMode)
 	switch payload.ExecutionMode {
 	case "", localDirectoryModeInPlace, localDirectoryModeWorktree:

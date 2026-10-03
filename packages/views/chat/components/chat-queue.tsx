@@ -120,7 +120,7 @@ export function ChatQueue({
                     aria-hidden="true"
                   />
                   <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                    {task.content?.trim() || t(($) => $.queue.fallback)}
+                    {task.action === "compact" ? t(($) => $.context.compact) : task.content?.trim() || t(($) => $.queue.fallback)}
                   </span>
                   <div className="flex shrink-0 items-center gap-0.5">
                     <span
@@ -185,7 +185,7 @@ export function ChatQueue({
                         className="w-auto"
                       >
                         <DropdownMenuItem
-                          disabled={busyAction !== null}
+                          disabled={busyAction !== null || task.action === "compact"}
                           onClick={() => void run(editKey, () => onEdit(task.task_id))}
                         >
                           <Pencil aria-hidden="true" />

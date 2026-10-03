@@ -1,4 +1,5 @@
-import type { ChatExecutionOverrides } from "../types/chat";
+import type { ChatExecutionOverrides, DirectorySyncResult } from "../types/chat";
+import { DirectorySyncRequestSchema, DirectorySyncStatusSchema } from "./schemas";
 import { planningLinksSchema, type PlanningLink, chatCardsSchema, type CardDecision, type ChatCard } from "./planning-schema";
 import type { ZodType } from "zod";
 import type { IssueWakeup, IssueWakeupInput, IssueWakeupSummaryRow, PausedWakeup, SystemWakeup, WakeupRun, WorkspaceSystemWakeup } from "../types/issue-wakeup";
@@ -3811,17 +3812,38 @@ export class ApiClient {
     }
   }
 
+  async syncChatDirectory(sessionId: string) {
+    const raw = await this.fetch<unknown>(`/api/chat/sessions/${sessionId}/directory-sync`, { method: "POST" });
+    const request = parseWithFallback<{ id: string } | null>(
+      raw, DirectorySyncRequestSchema, null, { endpoint: "POST chat directory-sync" },
+    );
+    if (!request) throw new Error("Invalid sync response");
+    return request;
+  }
+
+  async getChatDirectorySync(sessionId: string, id: string) {
+    const raw = await this.fetch<unknown>(`/api/chat/sessions/${sessionId}/directory-sync/${id}`);
+    const result = parseWithFallback<{
+      status: "pending" | "running" | "completed" | "timeout";
+      result?: DirectorySyncResult | null;
+    } | null>(raw, DirectorySyncStatusSchema, null, { endpoint: "GET chat directory-sync" });
+    if (!result) throw new Error("Invalid sync response");
+    return result;
+  }
+
   async sendChatMessage(
     sessionId: string,
     content: string,
     attachmentIds?: string[],
     cardDecision?: CardDecision,
+    action?: "compact",
   ): Promise<SendChatMessageResponse> {
     const body: {
       content: string;
       attachment_ids?: string[];
       card_decision?: CardDecision;
-    } = { content, card_decision: cardDecision };
+      action?: "compact";
+    } = { content, card_decision: cardDecision, action };
     if (attachmentIds && attachmentIds.length > 0) {
       body.attachment_ids = attachmentIds;
     }

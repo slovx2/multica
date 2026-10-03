@@ -1059,6 +1059,9 @@ func (b *codexBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 }
 
 func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts ExecOptions, attempt int) (*Session, error) {
+	if opts.CompactContext && opts.ResumeSessionID == "" {
+		return nil, fmt.Errorf("context compaction requires an existing thread")
+	}
 	execPath := b.cfg.ExecutablePath
 	if execPath == "" {
 		execPath = "codex"
@@ -1604,6 +1607,11 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			}
 			return
 		}
+		if opts.CompactContext && !resumed {
+			drainAndWait()
+			resCh <- Result{Status: "failed", Error: "context compaction could not resume the existing thread"}
+			return
+		}
 		c.setThreadID(threadID)
 		if resumed {
 			b.cfg.Logger.Info("codex thread resumed", "thread_id", threadID)
@@ -1685,7 +1693,12 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			}
 		}
 		turnNotificationGate.arm()
-		_, err = c.request(runCtx, "turn/start", turnParams)
+		method := "turn/start"
+		if opts.CompactContext {
+			method = "thread/compact/start"
+			turnParams = map[string]any{"threadId": threadID}
+		}
+		_, err = c.request(runCtx, method, turnParams)
 		if err != nil {
 			if runCtx.Err() != nil {
 				finishRunContextDone()
@@ -1939,7 +1952,14 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 			startupRefreshRetrySafe = false
 		}
 
+		c.usageMu.Lock()
+		contextUsage := c.contextUsage
+		c.usageMu.Unlock()
+		if opts.CompactContext {
+			finalOutput = ""
+		}
 		resCh <- Result{
+			ContextUsage:                 contextUsage,
 			Status:                       finalStatus,
 			Output:                       finalOutput,
 			Error:                        finalError,
@@ -2397,6 +2417,7 @@ func describeCodexSemanticActivity(msg Message) string {
 // ── codexClient: JSON-RPC 2.0 transport ──
 
 type codexClient struct {
+	contextUsage           *ContextUsage
 	planning               *codexPlanning
 	resolvedModel          string
 	cfg                    Config
@@ -3507,8 +3528,21 @@ func (c *codexClient) handleRawNotification(method string, params map[string]any
 		return
 	}
 
+	if (method == "item/started" || method == "item/completed") && extractNestedString(params, "item", "type") == "contextCompaction" {
+		if c.onMessage != nil {
+			status := "started"
+			if method == "item/completed" {
+				status = "completed"
+			}
+			c.onMessage(Message{Type: MessageCompaction, Compaction: &Compaction{Status: status}})
+		}
+		return
+	}
 	switch method {
 	case "thread/tokenUsage/updated":
+		c.usageMu.Lock()
+		c.contextUsage = codexContextUsage(params)
+		c.usageMu.Unlock()
 		c.updateThreadTokenUsage(params)
 
 	case "turn/started":

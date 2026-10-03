@@ -375,9 +375,9 @@ type ChatSessionUpdatedPayload = {
 export function applyChatSessionUpdatedToCache(
   qc: QueryClient,
   wsId: string,
-  payload: ChatSessionUpdatedPayload,
+  payload: ChatSessionUpdatedPayload & { context_changed?: boolean },
 ): void {
-  if (payload.plan_mode !== undefined || payload.execution_overrides !== undefined) {
+  if (payload.context_changed || payload.plan_mode !== undefined || payload.execution_overrides !== undefined) {
     void qc.invalidateQueries({ queryKey: chatKeys.session(wsId, payload.chat_session_id) });
   }
   qc.setQueryData<ChatSession[]>(chatKeys.sessions(wsId), (old) => {

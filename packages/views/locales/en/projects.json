@@ -153,7 +153,11 @@
     "ref_default_tooltip": "No branch set — tasks use whatever the repository's default branch is at the time.",
     "scope": "Scope",
     "scope_all": "All runs",
-    "scope_chat": "Chat only"
+    "scope_chat": "Chat only",
+    "auto_sync": "Auto sync",
+    "sync_off": "Off",
+    "sync_fetch": "Fetch only",
+    "sync_ff": "Fetch and fast-forward"
   },
   "delete_dialog": {
     "title": "Delete project",

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/multica-ai/multica/server/pkg/planning"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -28,9 +27,11 @@ import (
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/runtimeapps"
 	"github.com/multica-ai/multica/server/internal/util"
+	"github.com/multica-ai/multica/server/pkg/chatconfig"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/dbid"
 	"github.com/multica-ai/multica/server/pkg/featureflag"
+	"github.com/multica-ai/multica/server/pkg/planning"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 	"github.com/multica-ai/multica/server/pkg/redact"
 	"github.com/multica-ai/multica/server/pkg/skillbundle"
@@ -2367,6 +2368,14 @@ func (s *TaskService) SendDirectChatMessage(
 	uploaderID pgtype.UUID,
 	decisions ...*planning.Decision,
 ) (*DirectChatSendResult, error) {
+	return s.sendDirectChatMessage(ctx, session, agent, initiatorUserID, content, attachmentIDs, uploaderType, uploaderID, "", decisions...)
+}
+
+func (s *TaskService) SendDirectChatAction(ctx context.Context, session db.ChatSession, agent db.Agent, user pgtype.UUID, action string) (*DirectChatSendResult, error) {
+	return s.sendDirectChatMessage(ctx, session, agent, user, "", nil, "member", user, action)
+}
+
+func (s *TaskService) sendDirectChatMessage(ctx context.Context, session db.ChatSession, agent db.Agent, initiatorUserID pgtype.UUID, content string, attachmentIDs []pgtype.UUID, uploaderType string, uploaderID pgtype.UUID, action string, decisions ...*planning.Decision) (*DirectChatSendResult, error) {
 	// Build the per-task Composio overlay before the transaction — it can do
 	// network I/O and must not run with a DB transaction open.
 	overlay := s.buildRuntimeMCPOverlay(ctx, initiatorUserID, agent)
@@ -2478,6 +2487,21 @@ func (s *TaskService) SendDirectChatMessage(
 		task, err = qtx.SetChatTaskInputOwnerSelf(ctx, task.ID)
 		if err != nil {
 			return fmt.Errorf("stamp direct chat input owner: %w", err)
+		}
+		if action != "" {
+			runtime, err := qtx.GetAgentRuntime(ctx, carrier.RuntimeID)
+			if err != nil {
+				return err
+			}
+			if action != "compact" || !planning.Supported(runtime.Provider) {
+				return fmt.Errorf("unsupported chat action")
+			}
+			task, err = qtx.SetChatTaskAction(ctx, db.SetChatTaskActionParams{ID: task.ID, Action: action})
+			if err != nil {
+				return err
+			}
+			out.Task = task
+			return qtx.TouchChatSession(ctx, session.ID)
 		}
 		out.Task = task
 		if decision != nil {
@@ -3272,7 +3296,7 @@ func deleteUserChatInput(ctx context.Context, qtx *db.Queries, inputOwnerID pgty
 }
 
 func (s *TaskService) finalizeCancelledChatMessage(ctx context.Context, task db.AgentTaskQueue, opts CancelTaskOptions) *CancelledChatMessageResult {
-	if !task.ChatSessionID.Valid || task.IssueID.Valid {
+	if !task.ChatSessionID.Valid || task.IssueID.Valid || chatconfig.Action(task.Context) != "" {
 		return nil
 	}
 	var cancelled *CancelledChatMessageResult
@@ -4705,6 +4729,9 @@ const chatNoResponseFallback = "The agent finished this turn without a text repl
 // owner id so an auto-retry clone (which inherits chat_input_task_id) reaches
 // the same verdict as its parent — while a NULL owner marks a legacy task.
 func (s *TaskService) writeChatCompletionOutcome(ctx context.Context, qtx *db.Queries, task db.AgentTaskQueue, result []byte) (*db.ChatMessage, error) {
+	if chatconfig.Action(task.Context) != "" {
+		return nil, nil
+	}
 	// result is the daemon request re-marshalled by the handler, so it is always
 	// valid JSON; an empty Output is the only case this branch cares about.
 	var payload protocol.TaskCompletedPayload
@@ -5168,7 +5195,7 @@ func (s *TaskService) FailTaskWithTransition(ctx context.Context, taskID pgtype.
 		// held, then reanchor the next direct head. Otherwise the successor could
 		// be claimed between the status flip and this row, placing its user input
 		// before the failure it follows.
-		if t.ChatSessionID.Valid && retried == nil {
+		if t.ChatSessionID.Valid && retried == nil && chatconfig.Action(t.Context) == "" {
 			// This turn is dead, so anything it owned has to move on. An adopted
 			// onboarding kickoff would otherwise stay bound to a task that will
 			// never run again: the next turn would reach Mika with no onboarding

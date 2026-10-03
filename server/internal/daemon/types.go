@@ -69,6 +69,7 @@ type IssueStatusData struct {
 // Task represents a claimed task from the server.
 // Agent data (name, skills) is populated by the claim endpoint.
 type Task struct {
+	ChatAction         string                `json:"chat_action,omitempty"`
 	ExecutionOverrides *chatconfig.Overrides `json:"execution_overrides,omitempty"`
 	PlanMode           bool                  `json:"plan_mode"`
 	// StartClaimSupported gates retries when talking to older servers.
