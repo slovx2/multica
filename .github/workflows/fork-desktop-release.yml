@@ -6,7 +6,7 @@
 # before package.mjs derives the version via `git describe`; the installers
 # therefore carry version X.Y.Z-N.
 #
-# Installers are unsigned and not notarized (macOS gets an ad-hoc signature).
+# macOS 使用 Developer ID 签名并公证；Windows 安装包暂不签名。
 # The update feed points at this fork so installed apps are never replaced
 # by official upstream releases.
 name: Fork Desktop Release
@@ -33,27 +33,48 @@ jobs:
     steps:
       - name: Validate tag
         id: meta
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
         shell: bash
         run: |
-          tag="${{ inputs.tag }}"
+          tag="$RELEASE_TAG"
           if [[ ! "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)\.([0-9]+)$ ]]; then
             echo "::error::tag must look like vX.Y.Z.N; got '$tag'"
             exit 1
           fi
           echo "semver=${BASH_REMATCH[1]}-${BASH_REMATCH[2]}" >> "$GITHUB_OUTPUT"
 
+      - name: Validate Apple signing configuration
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          missing=0
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing repository secret: $name"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
       - name: Create GitHub release
         env:
+          RELEASE_TAG: ${{ inputs.tag }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          tag="${{ inputs.tag }}"
+          tag="$RELEASE_TAG"
           if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "release $tag already exists; reusing it"
           else
             gh release create "$tag" -R "$GITHUB_REPOSITORY" --verify-tag \
               --title "$tag" \
-              --notes "Fork build $tag (desktop version ${{ steps.meta.outputs.semver }}). Installers are unsigned and not notarized."
+              --notes "Fork build $tag (desktop version ${{ steps.meta.outputs.semver }}). macOS installers are Developer ID signed and notarized; Windows installers are unsigned."
           fi
 
   desktop:
@@ -75,9 +96,11 @@ jobs:
           fetch-depth: 0
 
       - name: Map tag to semver for git describe
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
         shell: bash
         run: |
-          git tag -d "${{ inputs.tag }}"
+          git tag -d "$RELEASE_TAG"
           git tag "v${{ needs.prepare.outputs.semver }}" HEAD
           git describe --tags --match 'v[0-9]*' --always --dirty
 
@@ -100,27 +123,61 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Package Desktop installers (${{ matrix.target }})
+      - name: Package signed and notarized macOS installers
+        if: matrix.target == 'mac'
+        working-directory: apps/desktop
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          node scripts/package.mjs --mac --x64 --arm64 --publish never \
+            -c.publish.owner=slovx2 -c.forceCodeSigning=true -c.mac.notarize=true
+
+      - name: Verify macOS signing and notarization
+        if: matrix.target == 'mac'
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for arch in x64 arm64; do
+            apps=(apps/desktop/dist/mac-"$arch"/*/*.app)
+            if [[ ${#apps[@]} -ne 1 ]]; then
+              echo "::error::Expected one macOS $arch app bundle"
+              exit 1
+            fi
+            app="${apps[0]}"
+            codesign --verify --deep --strict --verbose=2 "$app"
+            team=$(codesign -dv --verbose=4 "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')
+            if [[ "$team" != "$APPLE_TEAM_ID" ]]; then
+              echo "::error::Unexpected macOS signing team"
+              exit 1
+            fi
+            xcrun stapler validate "$app"
+          done
+
+      - name: Package Windows installers
+        if: matrix.target == 'win'
         working-directory: apps/desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
           MULTICA_FORK_DESKTOP: "true"
         shell: bash
         run: |
-          extra=()
-          if [[ "${{ matrix.target }}" == "mac" ]]; then
-            # Ad-hoc sign; an unsigned app is reported as "damaged" on Apple Silicon.
-            extra+=("-c.mac.identity=-")
-          fi
-          node scripts/package.mjs --${{ matrix.target }} --x64 --arm64 --publish never \
-            -c.publish.owner=slovx2 "${extra[@]}"
+          node scripts/package.mjs --win --x64 --arm64 --publish never \
+            -c.publish.owner=slovx2
 
       - name: Upload to release
         env:
+          RELEASE_TAG: ${{ inputs.tag }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           shopt -s nullglob
           files=(apps/desktop/dist/*/*.{dmg,zip,exe,blockmap} apps/desktop/dist/*/latest*.yml)
           printf '%s\n' "${files[@]}"
-          gh release upload "${{ inputs.tag }}" -R "$GITHUB_REPOSITORY" --clobber "${files[@]}"
+          gh release upload "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --clobber "${files[@]}"

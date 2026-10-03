@@ -32,3 +32,40 @@ unresolved reachable vulnerability.
 
 Every Go binary retains its compiler version in the standard Go build metadata;
 use `go version -m <binary>` when auditing a downloaded release artifact.
+
+## Fork desktop release (slovx2/multica)
+
+Desktop releases in this fork use the manually dispatched
+[Fork Desktop Release](workflows/fork-desktop-release.yml) workflow on GitHub-hosted
+runners. The upstream tag-triggered Release workflow described above is separate.
+Use GitHub Actions for desktop releases unless a local release is explicitly requested.
+
+Configure these repository Actions secrets before running the workflow:
+
+| Secret | Value |
+| --- | --- |
+| `CSC_LINK` | Base64-encoded Developer ID Application P12, including its private key |
+| `CSC_KEY_PASSWORD` | Password protecting that P12 |
+| `APPLE_ID` | Apple account associated with the developer team |
+| `APPLE_APP_SPECIFIC_PASSWORD` | Dedicated app-specific password for notarization |
+| `APPLE_TEAM_ID` | Developer team ID matching the signing certificate |
+
+The workflow checks all five secrets before creating a release. macOS builds
+receive the signing credentials, require Developer ID signing, and enable
+notarization. Before upload, both x64 and arm64 app bundles must pass signature,
+signing-team, and stapled-ticket checks. Windows packaging does not receive Apple
+credentials and remains unsigned. Never commit credentials to the repository.
+
+1. Create and push a new fork tag such as `v0.6.1.2` at the intended source commit.
+   The tag must already exist; CI maps it to desktop SemVer `0.6.1-2` locally.
+2. Dispatch `fork-desktop-release.yml` from `main` with that tag, for example:
+   `gh workflow run fork-desktop-release.yml --repo slovx2/multica --ref main -f tag=v0.6.1.2`.
+3. Inspect both platform jobs and the macOS verification step before announcing
+   the release. Verify the DMG/ZIP installers and architecture-specific update feeds
+   on the fork's release page, then smoke-test installation on both Mac architectures.
+
+Each platform uploads independently; a failed run can leave a release with partial
+assets. Rerun the same tag to finish it; uploads replace assets with the same name.
+Existing release notes are reused, so do not reuse a previously unsigned release tag
+for the first signed release. Credential configuration and workflow validation alone
+do not establish that a real build or Apple notarization has succeeded.
