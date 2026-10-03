@@ -1,5 +1,6 @@
 import { autoUpdater, type UpdateDownloadedEvent } from "electron-updater";
 import { app, type BrowserWindow, ipcMain } from "electron";
+import { configureForkUpdateChannel } from "./fork-update-channel";
 import type {
   ManualUpdateCheckResult,
   UpdaterPreferences,
@@ -50,6 +51,7 @@ export function configureMacX64UpdateChannel(
 // package.mjs publishes macOS x64 as `latest-x64-mac.yml`; the established
 // arm64 feed and runtime path remain unchanged.
 configureMacX64UpdateChannel(autoUpdater);
+configureForkUpdateChannel(autoUpdater, process.env.MULTICA_FORK_DESKTOP === "true");
 
 const STARTUP_CHECK_DELAY_MS = 5_000;
 const PERIODIC_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour

@@ -64,8 +64,9 @@ credentials and remains unsigned. Never commit credentials to the repository.
    the release. Verify the DMG/ZIP installers and architecture-specific update feeds
    on the fork's release page, then smoke-test installation on both Mac architectures.
 
-Each platform uploads independently; a failed run can leave a release with partial
-assets. Rerun the same tag to finish it; uploads replace assets with the same name.
-Existing release notes are reused, so do not reuse a previously unsigned release tag
-for the first signed release. Credential configuration and workflow validation alone
-do not establish that a real build or Apple notarization has succeeded.
+Each platform uploads into a draft; only after both finish does the workflow
+publish the release as latest. A failed run can be rerun while the release remains
+a draft. Published releases cannot be overwritten; always use a new tag.
+Credential configuration and workflow validation alone do not establish that a
+real build or Apple notarization has succeeded. See [fork update behavior and
+existing-client upgrade requirements](FORK_DESKTOP_RELEASE.md).
