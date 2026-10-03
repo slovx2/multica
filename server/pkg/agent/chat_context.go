@@ -4,11 +4,13 @@ import "encoding/json"
 
 // ContextUsage describes the most recent native request, never cumulative billing.
 type ContextUsage struct {
-	Used   int64 `json:"used"`
-	Window int64 `json:"window"`
+	Used   int64  `json:"used"`
+	Window int64  `json:"window"`
+	Model  string `json:"model,omitempty"`
 }
 type Compaction struct {
 	Status     string `json:"status"`
+	Error      string `json:"error,omitempty"`
 	PreTokens  *int64 `json:"pre_tokens,omitempty"`
 	PostTokens *int64 `json:"post_tokens,omitempty"`
 }
@@ -25,6 +27,9 @@ func (c *claudeContextTracker) observe(msg claudeSDKMessage) *Compaction {
 	if msg.ParentToolUseID != "" {
 		return nil
 	}
+	if msg.Type == "system" && msg.Subtype == "init" && msg.Model != "" {
+		c.model = msg.Model
+	}
 	if msg.Type == "assistant" {
 		var body claudeMessageContent
 		var native struct {
@@ -39,11 +44,15 @@ func (c *claudeContextTracker) observe(msg claudeSDKMessage) *Compaction {
 		}
 	}
 	if msg.Type == "result" {
-		c.window = msg.ModelUsage[c.model].ContextWindow
+		if window := msg.ModelUsage[c.model].ContextWindow; window > 0 {
+			c.window = window
+		}
 		// Manual compaction may have no assistant event; accept only an unambiguous native window.
 		if c.model == "" && len(msg.ModelUsage) == 1 {
 			for _, u := range msg.ModelUsage {
-				c.window = u.ContextWindow
+				if u.ContextWindow > 0 {
+					c.window = u.ContextWindow
+				}
 			}
 		}
 	}
@@ -60,7 +69,7 @@ func (c *claudeContextTracker) usage() *ContextUsage {
 	if c.used == nil || *c.used < 0 || c.window <= 0 {
 		return nil
 	}
-	return &ContextUsage{Used: *c.used, Window: c.window}
+	return &ContextUsage{Used: *c.used, Window: c.window, Model: c.model}
 }
 func codexContextUsage(params map[string]any) *ContextUsage {
 	u, _ := params["tokenUsage"].(map[string]any)
@@ -71,4 +80,15 @@ func codexContextUsage(params map[string]any) *ContextUsage {
 		return nil
 	}
 	return &ContextUsage{Used: int64(used), Window: int64(window)}
+}
+
+func newClaudeContextTracker(opts ExecOptions) claudeContextTracker {
+	tracker := claudeContextTracker{model: opts.Model}
+	if opts.ResumeSessionID != "" && opts.PriorContextUsage != nil {
+		tracker.window = opts.PriorContextUsage.Window
+		if tracker.model == "" {
+			tracker.model = opts.PriorContextUsage.Model
+		}
+	}
+	return tracker
 }

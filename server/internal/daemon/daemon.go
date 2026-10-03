@@ -8493,7 +8493,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		promptOptions = append(promptOptions, WithWorktreeReplayConflicts(env.LocalWorktree.ReplayConflicts))
 	}
 	prompt := BuildPrompt(task, provider, promptOptions...)
-	if directorySync != nil {
+	if directorySync != nil && directorySync.Summary() != "" {
 		prompt += "\n\n" + directorySync.Summary()
 	}
 
@@ -8714,6 +8714,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		return TaskResult{}, fmt.Errorf("unsupported chat action")
 	}
 	execOpts := agent.ExecOptions{
+		PriorContextUsage:          task.PriorContextUsage,
 		CompactContext:             task.ChatSessionID != "" && task.ChatAction == "compact",
 		ChatContext:                task.ChatSessionID != "" && task.IssueID == "",
 		PlanMode:                   task.PlanMode,
@@ -8844,7 +8845,10 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		defer func() {
 			reportCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			state := map[string]any{"usage": result.ContextUsage}
+			state := map[string]any{}
+			if result.ContextUsage != nil {
+				state["usage"] = result.ContextUsage
+			}
 			if result.Status != "completed" {
 				state["compaction"] = nil
 			}

@@ -2040,7 +2040,8 @@ export const ChatSessionSchema: z.ZodType<ChatSession> = z.object({
       window: z.number().int().positive(),
     }).nullable().catch(null).optional(),
     compaction: z.object({
-      status: z.enum(["started", "completed"]),
+      status: z.enum(["started", "completed", "failed"]),
+      error: z.string().optional(),
       pre_tokens: z.number().nonnegative().optional(),
       post_tokens: z.number().nonnegative().optional(),
     }).nullable().catch(null).optional(),

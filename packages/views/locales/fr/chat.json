@@ -276,6 +276,9 @@
     "exit_plan": "Quitter le plan"
   },
   "context": {
+    "compaction_failed": "Échec de la compression du contexte",
+    "sync_hint": "Récupère les mises à jour et avance vers la branche amont si le répertoire est propre et uniquement en retard.",
+    "compacted_counts": "Contexte compressé ({{before}}K → {{after}}K)",
     "compact": "Compacter le contexte",
     "warning": "La compaction fait perdre certains détails de la conversation.",
     "cancel": "Annuler",

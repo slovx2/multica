@@ -3077,6 +3077,13 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 		if failure := h.rejectClaimOnWorkspaceMismatch(r.Context(), task, resp.WorkspaceID, runtimeID, runtimeWorkspaceID, false); failure != nil {
 			return resp, deliveredCommentIDs, issueSnapshot, agentSkillCount, builtinSkillCount, failure
 		}
+		var priorContext struct {
+			RuntimeID string          `json:"runtime_id"`
+			Usage     json.RawMessage `json:"usage"`
+		}
+		if json.Unmarshal(cs.ContextState, &priorContext) == nil && priorContext.RuntimeID == uuidToString(task.RuntimeID) {
+			_ = json.Unmarshal(priorContext.Usage, &resp.PriorContextUsage)
+		}
 		resp.ChatAction = chatconfig.Action(task.Context)
 		if resp.ChatAction != "" && (resp.ChatAction != "compact" || !planning.Supported(runtime.Provider) || !requestHasClientCapability(r, protocol.DaemonCapabilityChatContextV1)) {
 			return resp, deliveredCommentIDs, issueSnapshot, agentSkillCount, builtinSkillCount, h.failClaimedTaskBeforeLaunch(r.Context(), task, "update daemon to compact chat context", taskfailure.ReasonAgentMissingConfig, "unsupported_chat_action", http.StatusBadRequest, "update daemon to compact chat context")

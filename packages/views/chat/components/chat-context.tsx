@@ -55,17 +55,21 @@ export function ChatContextBadge({
         </span>
       )}
       {compact && (
-        <span role="status" className="text-caption text-muted-foreground">
-          {compact.status === "started" ? (
-            t(($) => $.context.compacting)
-          ) : (
-            <>
-              {t(($) => $.context.compacted)}
-              {compact.pre_tokens != null &&
-                compact.post_tokens != null &&
-                ` (${(compact.pre_tokens / 1000).toFixed(1)}K → ${(compact.post_tokens / 1000).toFixed(1)}K)`}
-            </>
-          )}
+        <span
+          role={compact.status === "failed" ? "alert" : "status"}
+          title={compact.error}
+          className={`text-caption ${compact.status === "failed" ? "text-destructive" : "text-muted-foreground"}`}
+        >
+          {compact.status === "started"
+            ? t(($) => $.context.compacting)
+            : compact.status === "failed"
+              ? t(($) => $.context.compaction_failed)
+              : compact.pre_tokens != null && compact.post_tokens != null
+                ? t(($) => $.context.compacted_counts, {
+                    before: (compact.pre_tokens / 1000).toFixed(1),
+                    after: (compact.post_tokens / 1000).toFixed(1),
+                  })
+                : t(($) => $.context.compacted)}
         </span>
       )}
     </>
@@ -224,6 +228,7 @@ export function ChatDirectorySync({
       size="xs"
       disabled={disabled || pending}
       aria-busy={pending}
+      title={t(($) => $.context.sync_hint)}
       onClick={() => sync.mutate()}
     >
       {pending ? t(($) => $.context.syncing) : t(($) => $.context.sync)}

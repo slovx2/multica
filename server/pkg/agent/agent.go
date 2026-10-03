@@ -25,9 +25,7 @@ type Backend interface {
 
 // ExecOptions configures a single execution.
 type ExecOptions struct {
-	CompactContext bool
-	ChatContext    bool
-	PlanMode       bool
+	PlanMode bool
 	// PersistCard must acknowledge durable storage before the provider is interrupted.
 	PersistCard func(context.Context, planning.Card) error
 
@@ -140,6 +138,10 @@ type ExecOptions struct {
 	// through Claude Code's --settings flag. It currently carries restrictive
 	// runtime-skill overrides only; other providers ignore it.
 	ClaudeSettingsPath string
+
+	CompactContext    bool
+	ChatContext       bool
+	PriorContextUsage *ContextUsage
 }
 
 // runContext derives the execution context for an agent subprocess from the
@@ -218,16 +220,17 @@ const (
 
 // Message is a unified event emitted by an agent during execution.
 type Message struct {
+	Type      MessageType
+	Content   string         // text content (Text, Error, Log)
+	Tool      string         // tool name (ToolUse, ToolResult)
+	CallID    string         // tool call ID (ToolUse, ToolResult)
+	Input     map[string]any // tool input (ToolUse)
+	Output    string         // tool output (ToolResult)
+	Status    string         // agent status string (Status)
+	Level     string         // log level (Log)
+	SessionID string         // backend session id (Status), for early resume-pointer pinning
+
 	Compaction *Compaction
-	Type       MessageType
-	Content    string         // text content (Text, Error, Log)
-	Tool       string         // tool name (ToolUse, ToolResult)
-	CallID     string         // tool call ID (ToolUse, ToolResult)
-	Input      map[string]any // tool input (ToolUse)
-	Output     string         // tool output (ToolResult)
-	Status     string         // agent status string (Status)
-	Level      string         // log level (Log)
-	SessionID  string         // backend session id (Status), for early resume-pointer pinning
 }
 
 // TokenUsage tracks token consumption for a single model.
@@ -259,13 +262,12 @@ const CostUSDTicksPerUSD = 10_000_000_000
 
 // Result is the final outcome after an agent session completes.
 type Result struct {
-	ContextUsage *ContextUsage
-	Status       string // "completed", "failed", "aborted", "timeout", "cancelled"
-	Output       string // final user-facing output selected by the backend
-	Error        string // error message if failed
-	DurationMs   int64
-	SessionID    string
-	Usage        map[string]TokenUsage // keyed by model name
+	Status     string // "completed", "failed", "aborted", "timeout", "cancelled"
+	Output     string // final user-facing output selected by the backend
+	Error      string // error message if failed
+	DurationMs int64
+	SessionID  string
+	Usage      map[string]TokenUsage // keyed by model name
 	// ResumeRejected is positive evidence that this run's requested resume
 	// was permanently refused — the transcript is gone, the session belongs to
 	// another provider account, OR the session still exists but its history
@@ -312,6 +314,8 @@ type Result struct {
 	// its model catalog, and that the process tree was reaped afterwards.
 	// Like codexInitializeRetrySafe it is not part of the public contract.
 	codexStartupRefreshRetrySafe bool
+
+	ContextUsage *ContextUsage
 }
 
 // Config configures a Backend instance.

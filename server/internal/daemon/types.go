@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/multica-ai/multica/server/internal/runtimeapps"
+	"github.com/multica-ai/multica/server/pkg/agent"
 	"github.com/multica-ai/multica/server/pkg/chatconfig"
 	"github.com/multica-ai/multica/server/pkg/remotemcp"
 )
@@ -69,7 +70,6 @@ type IssueStatusData struct {
 // Task represents a claimed task from the server.
 // Agent data (name, skills) is populated by the claim endpoint.
 type Task struct {
-	ChatAction         string                `json:"chat_action,omitempty"`
 	ExecutionOverrides *chatconfig.Overrides `json:"execution_overrides,omitempty"`
 	PlanMode           bool                  `json:"plan_mode"`
 	// StartClaimSupported gates retries when talking to older servers.
@@ -182,6 +182,9 @@ type Task struct {
 	// Empty or non-task-scoped values are fatal for writable agent tasks; the
 	// daemon must not fall back to its own token. See MUL-3292.
 	AuthToken string `json:"auth_token,omitempty"`
+
+	ChatAction        string              `json:"chat_action,omitempty"`
+	PriorContextUsage *agent.ContextUsage `json:"prior_context_usage,omitempty"`
 }
 
 // ChatAttachmentMeta is the structured attachment metadata the daemon

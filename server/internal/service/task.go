@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/multica-ai/multica/server/pkg/planning"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -31,7 +32,6 @@ import (
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/dbid"
 	"github.com/multica-ai/multica/server/pkg/featureflag"
-	"github.com/multica-ai/multica/server/pkg/planning"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 	"github.com/multica-ai/multica/server/pkg/redact"
 	"github.com/multica-ai/multica/server/pkg/skillbundle"
@@ -2368,14 +2368,6 @@ func (s *TaskService) SendDirectChatMessage(
 	uploaderID pgtype.UUID,
 	decisions ...*planning.Decision,
 ) (*DirectChatSendResult, error) {
-	return s.sendDirectChatMessage(ctx, session, agent, initiatorUserID, content, attachmentIDs, uploaderType, uploaderID, "", decisions...)
-}
-
-func (s *TaskService) SendDirectChatAction(ctx context.Context, session db.ChatSession, agent db.Agent, user pgtype.UUID, action string) (*DirectChatSendResult, error) {
-	return s.sendDirectChatMessage(ctx, session, agent, user, "", nil, "member", user, action)
-}
-
-func (s *TaskService) sendDirectChatMessage(ctx context.Context, session db.ChatSession, agent db.Agent, initiatorUserID pgtype.UUID, content string, attachmentIDs []pgtype.UUID, uploaderType string, uploaderID pgtype.UUID, action string, decisions ...*planning.Decision) (*DirectChatSendResult, error) {
 	// Build the per-task Composio overlay before the transaction — it can do
 	// network I/O and must not run with a DB transaction open.
 	overlay := s.buildRuntimeMCPOverlay(ctx, initiatorUserID, agent)
@@ -2487,21 +2479,6 @@ func (s *TaskService) sendDirectChatMessage(ctx context.Context, session db.Chat
 		task, err = qtx.SetChatTaskInputOwnerSelf(ctx, task.ID)
 		if err != nil {
 			return fmt.Errorf("stamp direct chat input owner: %w", err)
-		}
-		if action != "" {
-			runtime, err := qtx.GetAgentRuntime(ctx, carrier.RuntimeID)
-			if err != nil {
-				return err
-			}
-			if action != "compact" || !planning.Supported(runtime.Provider) {
-				return fmt.Errorf("unsupported chat action")
-			}
-			task, err = qtx.SetChatTaskAction(ctx, db.SetChatTaskActionParams{ID: task.ID, Action: action})
-			if err != nil {
-				return err
-			}
-			out.Task = task
-			return qtx.TouchChatSession(ctx, session.ID)
 		}
 		out.Task = task
 		if decision != nil {
@@ -5004,6 +4981,7 @@ func (s *TaskService) FailTaskWithTransition(ctx context.Context, taskID pgtype.
 		}
 	}
 
+	var compactFailureSession *db.ChatSession
 	var task db.AgentTaskQueue
 	var retried *db.AgentTaskQueue
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
@@ -5190,6 +5168,18 @@ func (s *TaskService) FailTaskWithTransition(ctx context.Context, taskID pgtype.
 			}
 		}
 
+		if t.ChatSessionID.Valid && !t.IssueID.Valid && retried == nil && chatconfig.Action(t.Context) == "compact" {
+			cs, err := qtx.GetChatSession(ctx, t.ChatSessionID)
+			if err != nil {
+				return err
+			}
+			state, _ := json.Marshal(map[string]any{"compaction": map[string]string{"status": "failed", "error": redact.Text(errMsg)}})
+			if err := qtx.UpdateChatContextState(ctx, db.UpdateChatContextStateParams{ID: cs.ID, WorkspaceID: cs.WorkspaceID, State: state}); err != nil {
+				return err
+			}
+			compactFailureSession = &cs
+		}
+
 		// A terminal non-retried chat failure is a visible assistant outcome.
 		// Persist it while the session lock and failure transaction are still
 		// held, then reanchor the next direct head. Otherwise the successor could
@@ -5250,6 +5240,11 @@ func (s *TaskService) FailTaskWithTransition(ctx context.Context, taskID pgtype.
 			)
 		}
 		return nil, false, fmt.Errorf("fail task: %w", err)
+	}
+
+	if compactFailureSession != nil {
+		cs := compactFailureSession
+		s.Bus.Publish(events.Event{Type: protocol.EventChatSessionUpdated, WorkspaceID: util.UUIDToString(cs.WorkspaceID), ActorType: "member", ActorID: util.UUIDToString(cs.CreatorID), ChatSessionID: util.UUIDToString(cs.ID), Payload: map[string]any{"chat_session_id": util.UUIDToString(cs.ID), "context_changed": true}})
 	}
 
 	slog.Warn("task failed", "task_id", util.UUIDToString(task.ID), "issue_id", util.UUIDToString(task.IssueID), "error", errMsg, "failure_reason", failureReason)

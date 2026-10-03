@@ -359,7 +359,6 @@ type TaskCancellationActor struct {
 }
 
 type AgentTaskResponse struct {
-	ChatAction               string                 `json:"chat_action,omitempty"`
 	ExecutionOverrides       *chatconfig.Overrides  `json:"execution_overrides,omitempty"`
 	PlanMode                 bool                   `json:"plan_mode"`
 	StartClaimSupported      bool                   `json:"start_claim_supported,omitempty"`
@@ -568,6 +567,9 @@ type AgentTaskResponse struct {
 	// owning user; the daemon must not fall back to its own credential. See
 	// MUL-3292.
 	AuthToken string `json:"auth_token,omitempty"`
+
+	ChatAction        string              `json:"chat_action,omitempty"`
+	PriorContextUsage *agent.ContextUsage `json:"prior_context_usage,omitempty"`
 }
 
 // TaskAttribution is the wire shape of a run's accountable-human provenance

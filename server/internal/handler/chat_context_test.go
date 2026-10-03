@@ -74,6 +74,8 @@ func TestChatCompactQueuesClaimsWithoutInputAndSuppressesReply(t *testing.T) {
 	}
 	dbfx.Exec(t, "UPDATE agent_task_queue SET status='completed' WHERE id=$1", firstTask)
 	dbfx.Exec(t, "UPDATE chat_session SET session_id='native', runtime_id=$2 WHERE id=$1", sessionID, uuidToString(carrier.RuntimeID))
+	previous, _ := json.Marshal(map[string]any{"runtime_id": uuidToString(carrier.RuntimeID), "usage": map[string]any{"used": 22657, "window": 1000000, "model": "session-model"}})
+	dbfx.Exec(t, "UPDATE chat_session SET context_state=$2 WHERE id=$1", sessionID, previous)
 	dbfx.Exec(t, "UPDATE agent_task_queue SET status='dispatched' WHERE id=$1", uuidToString(sent.Task.ID))
 	task, _ := testHandler.Queries.GetAgentTask(ctx, sent.Task.ID)
 	rt, _ := testHandler.Queries.GetAgentRuntime(ctx, carrier.RuntimeID)
@@ -82,6 +84,9 @@ func TestChatCompactQueuesClaimsWithoutInputAndSuppressesReply(t *testing.T) {
 	response, _, _, _, _, failure := testHandler.buildClaimedTaskResponse(req, &task, rt, uuidToString(rt.ID), testWorkspaceID)
 	if failure != nil || response.ChatAction != "compact" || response.PriorSessionID != "native" {
 		t.Fatalf("claim %+v failure %+v", response, failure)
+	}
+	if response.PriorContextUsage == nil || response.PriorContextUsage.Window != 1000000 || response.PriorContextUsage.Model != "session-model" {
+		t.Fatalf("lost previous native context at claim: %+v", response.PriorContextUsage)
 	}
 	dbfx.Exec(t, "UPDATE agent_task_queue SET status='running' WHERE id=$1", uuidToString(task.ID))
 	_, err = testHandler.TaskService.CompleteTask(ctx, task.ID, []byte(`{"output":"must not be published"}`), "native", "", "", false, "", "")
@@ -165,5 +170,100 @@ func assertChatContextContract(t *testing.T, name string, got map[string]any, id
 	got[idKey], got["created_at"] = want[idKey], want["created_at"]
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("%s wire contract: got %#v want %#v", name, got, want)
+	}
+}
+
+func TestChatCompactFailurePreservesUsageAndPublishesStatus(t *testing.T) {
+	ctx := context.Background()
+	_, sessionID, taskID, daemonID := planningFixtureRows(t, "claude")
+	dbfx.Exec(t, `UPDATE agent_task_queue SET context='{"chat_action":"compact"}' WHERE id=$1`, taskID)
+	report := func(body any) {
+		req := withURLParam(newDaemonTokenRequest("POST", "/context", body, testWorkspaceID, daemonID), "taskId", taskID)
+		testutil.Call(t, testHandler.ReportChatContext, req).Want(200)
+	}
+	report(map[string]any{"usage": map[string]any{"used": 22657, "window": 1000000, "model": "native"}})
+	report(map[string]any{"usage": nil})
+	service := *testHandler.TaskService
+	service.Bus = events.New()
+	var updates []events.Event
+	service.Bus.Subscribe(protocol.EventChatSessionUpdated, func(e events.Event) { updates = append(updates, e) })
+	if _, err := service.FailTask(ctx, parseUUID(taskID), "No conversation found", "", "", "", "agent_error", false, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	session, err := testHandler.Queries.GetChatSession(ctx, parseUUID(sessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state struct {
+		Usage      struct{ Used, Window int64 }
+		Compaction struct{ Status, Error string }
+	}
+	if err := json.Unmarshal(session.ContextState, &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Usage.Used != 22657 || state.Usage.Window != 1000000 || state.Compaction.Status != "failed" || state.Compaction.Error != "No conversation found" {
+		t.Fatalf("state %s", session.ContextState)
+	}
+	if len(updates) != 1 || updates[0].ActorID != testUserID {
+		t.Fatalf("missing creator notification: %+v", updates)
+	}
+	if dbfx.Count(t, "SELECT count(*) FROM chat_message WHERE task_id=$1", taskID) != 0 {
+		t.Fatal("failure wrote an assistant reply")
+	}
+}
+
+func TestChatDirectorySyncMigrationCascadesAndRollback(t *testing.T) {
+	ctx := context.Background()
+	tx, err := testPool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	// Shadow parent tables on this connection only; never mutate public tables.
+	for _, table := range []string{"chat_session", "workspace", "agent_runtime"} {
+		if _, err := tx.Exec(ctx, "CREATE TEMP TABLE "+table+" (id uuid PRIMARY KEY) ON COMMIT DROP"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.Exec(ctx, "SET LOCAL search_path = pg_temp, public"); err != nil {
+		t.Fatal(err)
+	}
+	up, err := os.ReadFile("../../migrations/571_chat_directory_sync.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	down, err := os.ReadFile("../../migrations/571_chat_directory_sync.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, string(up)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, string(down)); err != nil {
+		t.Fatal(err)
+	}
+	var gone bool
+	if err := tx.QueryRow(ctx, "SELECT to_regclass('pg_temp.chat_directory_sync') IS NULL").Scan(&gone); err != nil || !gone {
+		t.Fatalf("down: %v, %v", gone, err)
+	}
+	if _, err := tx.Exec(ctx, string(up)); err != nil {
+		t.Fatal(err)
+	}
+	for _, parent := range []string{"chat_session", "workspace", "agent_runtime"} {
+		for _, table := range []string{"chat_session", "workspace", "agent_runtime"} {
+			if _, err := tx.Exec(ctx, "INSERT INTO "+table+" VALUES ($1) ON CONFLICT DO NOTHING", testUserID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO chat_directory_sync (id,chat_session_id,workspace_id,runtime_id,resource_ref) VALUES ($1,$1,$1,$1,'{}')`, testUserID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(ctx, "DELETE FROM "+parent+" WHERE id=$1", testUserID); err != nil {
+			t.Fatal(err)
+		}
+		var count int
+		if err := tx.QueryRow(ctx, "SELECT count(*) FROM chat_directory_sync").Scan(&count); err != nil || count != 0 {
+			t.Fatalf("%s left %d sync records: %v", parent, count, err)
+		}
 	}
 }

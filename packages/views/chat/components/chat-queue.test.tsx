@@ -44,6 +44,10 @@ describe("ChatQueue", () => {
   it("labels compaction actions and prevents editing them as messages", async () => {
     const actions = renderQueue("running", false, "compact");
     expect(screen.getByText("Compact context")).toBeInTheDocument();
+    const steer = screen.getAllByRole("button", { name: "Steer" })[0]!;
+    expect(steer).toBeDisabled();
+    fireEvent.click(steer);
+    expect(actions.onSendNow).not.toHaveBeenCalled();
     fireEvent.click(screen.getAllByLabelText("More queue actions")[0]!);
     const edit = await screen.findByRole("menuitem", { name: "Edit queued message" });
     expect(edit).toHaveAttribute("aria-disabled", "true");

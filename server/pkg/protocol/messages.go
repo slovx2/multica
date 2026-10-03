@@ -430,7 +430,6 @@ type DaemonHeartbeatPendingDirectorySync struct {
 }
 
 type DaemonHeartbeatAckPayload struct {
-	PendingDirectorySync    []DaemonHeartbeatPendingDirectorySync   `json:"pending_directory_sync,omitempty"`
 	RuntimeID               string                                  `json:"runtime_id"`
 	Status                  string                                  `json:"status"`
 	ServerCapabilities      []string                                `json:"server_capabilities,omitempty"`
@@ -444,6 +443,8 @@ type DaemonHeartbeatAckPayload struct {
 	// that don't know this field silently ignore it (standard JSON behavior)
 	// and fall back to the singular PendingLocalSkillImport above.
 	PendingLocalSkillImports []DaemonHeartbeatPendingLocalSkillImport `json:"pending_local_skill_imports,omitempty"`
+
+	PendingDirectorySync []DaemonHeartbeatPendingDirectorySync `json:"pending_directory_sync,omitempty"`
 }
 
 // HeartbeatStatusRuntimeGone is the ack Status used when the runtime row no

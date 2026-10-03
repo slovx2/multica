@@ -102,3 +102,19 @@ func TestLocalDirectorySync(t *testing.T) {
 		})
 	}
 }
+
+func TestLocalDirectorySyncPromptSummary(t *testing.T) {
+	for _, status := range []string{"current", "updated"} {
+		if got := (directorySyncResult{Status: status, Updated: 3}).Summary(); got != "" {
+			t.Fatalf("successful sync injected %q", got)
+		}
+	}
+	dirty := directorySyncResult{Status: "skipped", Reason: "dirty", Upstream: "origin/main", Behind: 3}
+	if got := dirty.Summary(); got != "本地落后 origin/main 3 个提交，存在未提交改动或未跟踪文件，未自动更新。" {
+		t.Fatal(got)
+	}
+	failed := directorySyncResult{Status: "warning", Reason: "fetch_failed"}
+	if got := failed.Summary(); got != "抓取远端更新失败，将继续使用本地代码，未自动更新。" {
+		t.Fatal(got)
+	}
+}

@@ -272,6 +272,9 @@
     "exit_plan": "退出计划"
   },
   "context": {
+    "compaction_failed": "上下文压缩失败",
+    "sync_hint": "同步会抓取远端更新，工作区干净且仅落后时会快进到上游。",
+    "compacted_counts": "已压缩（{{before}}K → {{after}}K）",
     "compact": "压缩上下文",
     "warning": "压缩会丢失部分对话细节。",
     "cancel": "取消",

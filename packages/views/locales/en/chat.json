@@ -276,6 +276,9 @@
     "exit_plan": "Exit plan"
   },
   "context": {
+    "compaction_failed": "Context compaction failed",
+    "sync_hint": "Fetch remote updates and fast-forward to upstream when the working tree is clean and only behind.",
+    "compacted_counts": "Compacted ({{before}}K → {{after}}K)",
     "compact": "Compact context",
     "warning": "Compaction will lose some conversation details.",
     "cancel": "Cancel",

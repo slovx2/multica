@@ -272,6 +272,9 @@
     "exit_plan": "計画を終了"
   },
   "context": {
+    "compaction_failed": "コンテキストの圧縮に失敗しました",
+    "sync_hint": "リモートの更新を取得し、作業ツリーがクリーンで遅れている場合に上流へ早送りします。",
+    "compacted_counts": "圧縮済み（{{before}}K → {{after}}K）",
     "compact": "コンテキストを圧縮",
     "warning": "圧縮すると会話の詳細の一部が失われます。",
     "cancel": "キャンセル",

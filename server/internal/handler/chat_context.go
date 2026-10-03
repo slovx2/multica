@@ -35,9 +35,12 @@ func (h *Handler) ReportChatContext(w http.ResponseWriter, r *http.Request) {
 				writeError(w, 400, "invalid context usage")
 				return
 			}
+			if usage == nil {
+				delete(state, "usage")
+			}
 		case "compaction":
 			var compact *agent.Compaction
-			if json.Unmarshal(raw, &compact) != nil || (compact != nil && compact.Status != "started" && compact.Status != "completed") {
+			if json.Unmarshal(raw, &compact) != nil || (compact != nil && compact.Status != "started" && compact.Status != "completed" && compact.Status != "failed") {
 				writeError(w, 400, "invalid compaction")
 				return
 			}
@@ -67,6 +70,15 @@ func (h *Handler) ReportChatContext(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, 404, "chat not found")
 		return
+	}
+	var previous struct {
+		RuntimeID string `json:"runtime_id"`
+	}
+	_ = json.Unmarshal(cs.ContextState, &previous)
+	if previous.RuntimeID != "" && previous.RuntimeID != uuidToString(task.RuntimeID) {
+		if _, supplied := state["usage"]; !supplied {
+			state["usage"] = json.RawMessage(`null`)
+		}
 	}
 	state["runtime_id"], _ = json.Marshal(uuidToString(task.RuntimeID))
 	raw, err := json.Marshal(state)

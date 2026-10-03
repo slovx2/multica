@@ -131,7 +131,7 @@ export function ChatQueue({
                         variant="ghost"
                         size="xs"
                         className="px-1.5 font-normal text-muted-foreground"
-                        disabled={busyAction !== null || !canSendNow}
+                        disabled={busyAction !== null || !canSendNow || task.action === "compact"}
                         aria-label={sendNowLabel}
                         onClick={() => void run(sendNowKey, () => onSendNow(task.task_id))}
                       >

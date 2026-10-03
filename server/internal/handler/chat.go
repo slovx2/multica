@@ -890,10 +890,11 @@ func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type SendChatMessageRequest struct {
-	Action        string             `json:"action,omitempty"`
 	CardDecision  *planning.Decision `json:"card_decision,omitempty"`
 	Content       string             `json:"content"`
 	AttachmentIDs []string           `json:"attachment_ids"`
+
+	Action string `json:"action,omitempty"`
 }
 
 type SendChatMessageResponse struct {
@@ -1428,12 +1429,13 @@ func waitReasonForStatus(status string, reason pgtype.Text) string {
 }
 
 type QueuedChatTaskResponse struct {
-	Action    string `json:"action,omitempty"`
 	TaskID    string `json:"task_id"`
 	Status    string `json:"status"`
 	CreatedAt string `json:"created_at"`
 	MessageID string `json:"message_id,omitempty"`
 	Content   string `json:"content,omitempty"`
+
+	Action string `json:"action,omitempty"`
 }
 
 type PrioritizeQueuedChatTaskResponse struct {
@@ -2040,7 +2042,6 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 // ---------------------------------------------------------------------------
 
 type ChatSessionResponse struct {
-	ContextState       json.RawMessage      `json:"context_state"`
 	ExecutionOverrides chatconfig.Overrides `json:"execution_overrides"`
 
 	PlanMode    bool    `json:"plan_mode"`
@@ -2066,6 +2067,8 @@ type ChatSessionResponse struct {
 	IsCurrentChannelRoute *bool                             `json:"is_current_channel_route,omitempty"`
 	CreatedAt             string                            `json:"created_at"`
 	UpdatedAt             string                            `json:"updated_at"`
+
+	ContextState json.RawMessage `json:"context_state"`
 }
 
 type ChatSessionChannelSourceResponse struct {
@@ -2161,20 +2164,21 @@ type ChatMessageResponse struct {
 
 func chatSessionToResponse(s db.ChatSession) ChatSessionResponse {
 	return ChatSessionResponse{
-		ContextState: s.ContextState,
-		ID:           uuidToString(s.ID),
-		WorkspaceID:  uuidToString(s.WorkspaceID),
-		AgentID:      uuidToString(s.AgentID),
-		CreatorID:    uuidToString(s.CreatorID),
-		ProjectID:    uuidToPtr(s.ProjectID),
-		PlanMode:     s.PlanMode,
-		Title:        s.Title,
-		Status:       s.Status,
-		Pinned:       s.PinnedAt.Valid,
-		CreatedAt:    timestampToString(s.CreatedAt),
-		UpdatedAt:    timestampToString(s.UpdatedAt),
+		ID:          uuidToString(s.ID),
+		WorkspaceID: uuidToString(s.WorkspaceID),
+		AgentID:     uuidToString(s.AgentID),
+		CreatorID:   uuidToString(s.CreatorID),
+		ProjectID:   uuidToPtr(s.ProjectID),
+		PlanMode:    s.PlanMode,
+		Title:       s.Title,
+		Status:      s.Status,
+		Pinned:      s.PinnedAt.Valid,
+		CreatedAt:   timestampToString(s.CreatedAt),
+		UpdatedAt:   timestampToString(s.UpdatedAt),
 
 		ExecutionOverrides: chatconfig.Decode(s.ExecutionOverrides),
+
+		ContextState: s.ContextState,
 	}
 }
 

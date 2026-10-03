@@ -35,19 +35,13 @@ interface SettingsProps {
 }
 
 export function useChatSessionSettings({
-  enabled,
-  sessionId,
-  runtimeId,
-  model,
-  disabled,
+  enabled, sessionId, runtimeId, model, disabled,
 }: SettingsProps) {
   const { t: tAgents } = useT("agents");
   const wsId = useWorkspaceId();
   const qc = useQueryClient();
   const runtimes = useQuery({ ...runtimeListOptions(wsId), enabled });
-  const runtime = enabled
-    ? runtimes.data?.find((r) => r.id === runtimeId)
-    : undefined;
+  const runtime = enabled ? runtimes.data?.find((r) => r.id === runtimeId) : undefined;
   const catalog = useQuery(
     runtimeModelsOptions(runtime?.status === "online" ? runtimeId : null),
   );
@@ -67,12 +61,7 @@ export function useChatSessionSettings({
     entry.service_tiers?.length
       ? [
           ...(supportsExplicitStandard
-            ? [
-                {
-                  id: "default",
-                  name: tAgents(($) => $.pickers.service_tier_standard),
-                },
-              ]
+            ? [{ id: "default", name: tAgents(($) => $.pickers.service_tier_standard) }]
             : []),
           ...entry.service_tiers.filter((tier) => tier.id !== "default"),
         ]

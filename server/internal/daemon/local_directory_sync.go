@@ -22,7 +22,28 @@ type directorySyncResult struct {
 }
 
 func (r directorySyncResult) Summary() string {
-	return fmt.Sprintf("Local directory sync: %s; upstream=%s, ahead=%d, behind=%d, updated=%d. %s", r.Status, r.Upstream, r.Ahead, r.Behind, r.Updated, r.Reason)
+	if r.Status == "current" || r.Status == "updated" {
+		return ""
+	}
+	reasons := map[string]string{
+		"disabled": "已关闭自动同步", "dirty": "存在未提交改动或未跟踪文件",
+		"ahead": "本地分支超前", "diverged": "本地与上游分支已分叉",
+		"no_upstream": "当前分支没有上游", "detached_head": "当前未处于分支上",
+		"fetch_failed": "抓取远端更新失败，将继续使用本地代码",
+		"fetch_only":   "当前设置为仅抓取远端更新", "directory_busy": "目录正在被其他任务使用",
+		"fast_forward_failed": "无法安全快进", "comparison_failed": "无法比较本地与上游分支",
+		"status_failed": "无法读取工作区状态", "unsupported_mode": "不支持此同步设置",
+		"invalid_directory": "本地目录不可用",
+	}
+	reason := reasons[r.Reason]
+	if reason == "" {
+		reason = "无法安全更新本地目录"
+	}
+	prefix := ""
+	if r.Behind > 0 {
+		prefix = fmt.Sprintf("本地落后 %s %d 个提交，", r.Upstream, r.Behind)
+	}
+	return prefix + reason + "，未自动更新。"
 }
 
 // syncLocalDirectory never resets, stashes, cleans, or merges divergent history.

@@ -2,7 +2,8 @@ export interface ChatContextState {
   runtime_id?: string;
   usage?: { used: number; window: number } | null;
   compaction?: {
-    status: "started" | "completed";
+    status: "started" | "completed" | "failed";
+    error?: string;
     pre_tokens?: number;
     post_tokens?: number;
   } | null;

@@ -76,7 +76,7 @@ func TestClaudeNativeContextUsage(t *testing.T) {
 		name, body string
 		want       *ContextUsage
 	}{
-		{"native input and caches", `{"model":"native","usage":{"input_tokens":100,"cache_read_input_tokens":20000,"cache_creation_input_tokens":2557}}`, &ContextUsage{Used: 22657, Window: 1000000}},
+		{"native input and caches", `{"model":"native","usage":{"input_tokens":100,"cache_read_input_tokens":20000,"cache_creation_input_tokens":2557}}`, &ContextUsage{Used: 22657, Window: 1000000, Model: "native"}},
 		{"missing input", `{"model":"native","usage":{}}`, nil},
 		{"unknown model window", `{"model":"other","usage":{"input_tokens":100}}`, nil},
 	} {
@@ -156,5 +156,42 @@ echo '{"jsonrpc":"2.0","id":3,"result":{}}'
 	result := <-session.Result
 	if result.Status != "completed" || result.Output != "" || count != 2 || result.ContextUsage == nil {
 		t.Fatalf("result %+v events %d", result, count)
+	}
+}
+
+func TestClaudeCompactWindowUsesSessionModelThenPreviousNativeWindow(t *testing.T) {
+	for _, tc := range []struct {
+		name, resume string
+		native       bool
+		want         int64
+	}{
+		{"native session model in multi-model result", "session", true, 200000},
+		{"missing current model retains prior window", "session", false, 1000000},
+		{"fresh session cannot inherit previous window", "", false, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tracker := newClaudeContextTracker(ExecOptions{ResumeSessionID: tc.resume, PriorContextUsage: &ContextUsage{Used: 22657, Window: 1000000, Model: "previous"}})
+			tracker.observe(claudeSDKMessage{Type: "system", Subtype: "init", Model: "current"})
+			var boundary claudeSDKMessage
+			if err := json.Unmarshal([]byte(`{"type":"system","subtype":"compact_boundary","compact_metadata":{"post_tokens":1629}}`), &boundary); err != nil {
+				t.Fatal(err)
+			}
+			tracker.observe(boundary)
+			models := map[string]claudeResultModelUsage{"small": {ContextWindow: 32000}, "previous": {ContextWindow: 1000000}}
+			if tc.native {
+				models["current"] = claudeResultModelUsage{ContextWindow: 200000}
+			}
+			tracker.observe(claudeSDKMessage{Type: "result", ModelUsage: models})
+			usage := tracker.usage()
+			if tc.want == 0 {
+				if usage != nil {
+					t.Fatalf("inherited stale usage: %+v", usage)
+				}
+				return
+			}
+			if usage == nil || usage.Window != tc.want || usage.Used != 1629 || usage.Model != "current" {
+				t.Fatalf("usage %+v", usage)
+			}
+		})
 	}
 }

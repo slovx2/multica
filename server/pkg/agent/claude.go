@@ -207,7 +207,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		var sessionID string
 		var lastUsageResult *claudeSDKMessage
 		sawAsyncLaunch := false
-		var contextTracker claudeContextTracker
+		contextTracker := newClaudeContextTracker(opts)
 		usage := make(map[string]TokenUsage)
 		seenUsage := make(map[string]struct{})
 		eventCount := 0
@@ -676,11 +676,6 @@ func claudeMapHasAsyncLaunchStatus(value map[string]any) bool {
 // ── Claude SDK JSON types ──
 
 type claudeSDKMessage struct {
-	Status          string `json:"status"`
-	CompactMetadata struct {
-		PreTokens  *int64 `json:"pre_tokens"`
-		PostTokens *int64 `json:"post_tokens"`
-	} `json:"compact_metadata"`
 	Type            string          `json:"type"`
 	Message         json.RawMessage `json:"message,omitempty"`
 	Subtype         string          `json:"subtype,omitempty"`
@@ -707,6 +702,12 @@ type claudeSDKMessage struct {
 	RequestID string          `json:"request_id,omitempty"`
 	Request   json.RawMessage `json:"request,omitempty"`
 	Response  json.RawMessage `json:"response,omitempty"`
+
+	Status          string `json:"status"`
+	CompactMetadata struct {
+		PreTokens  *int64 `json:"pre_tokens"`
+		PostTokens *int64 `json:"post_tokens"`
+	} `json:"compact_metadata"`
 }
 
 type claudeLogEntry struct {
@@ -730,11 +731,12 @@ type claudeUsage struct {
 }
 
 type claudeResultModelUsage struct {
-	ContextWindow            int64 `json:"contextWindow"`
 	InputTokens              int64 `json:"inputTokens"`
 	OutputTokens             int64 `json:"outputTokens"`
 	CacheReadInputTokens     int64 `json:"cacheReadInputTokens"`
 	CacheCreationInputTokens int64 `json:"cacheCreationInputTokens"`
+
+	ContextWindow int64 `json:"contextWindow"`
 }
 
 // claudeTerminalReasonFailure turns Claude Code's structured terminal_reason
