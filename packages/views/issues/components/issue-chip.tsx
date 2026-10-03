@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { issueListOptions, issueDetailOptions } from "@multica/core/issues/queries";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { StatusIcon } from "./status-icon";
+import { ActorAvatar } from "../../common/actor-avatar";
 
 /**
  * Compact, presentation-only representation of an issue —
@@ -39,6 +40,8 @@ import { StatusIcon } from "./status-icon";
  */
 export interface IssueChipProps {
   issueId: string;
+  /** Show the assignee when a chip serves as a row in a compact issue list. */
+  showAssignee?: boolean;
   /** Shown when the issue can't be resolved (deleted, other workspace, …). */
   fallbackLabel?: string;
   /** Optional content override for callers that need the shared chip shell. */
@@ -53,6 +56,7 @@ const BASE_CLASS =
 
 export function IssueChip({
   issueId,
+  showAssignee = false,
   fallbackLabel,
   children,
   className,
@@ -98,6 +102,15 @@ export function IssueChip({
         {issue.identifier}
       </span>
       <span className="min-w-0 truncate text-foreground">{issue.title}</span>
+      {showAssignee && issue.assignee_type && issue.assignee_id && (
+        <ActorAvatar
+          actorType={issue.assignee_type}
+          actorId={issue.assignee_id}
+          size="xs"
+          profileLink={false}
+          className="ml-auto shrink-0"
+        />
+      )}
     </span>
   );
 }

@@ -1,7 +1,5 @@
 "use client";
 
-import { PlanningLinks } from "./planning-links";
-
 import { useRef, useState } from "react";
 import { Button } from "@multica/ui/components/ui/button";
 import { Markdown } from "@multica/ui/markdown";
@@ -11,7 +9,7 @@ import { useT } from "../../i18n";
 export function ChatCards({ sessionId, disabled }: { sessionId: string | null; disabled?: boolean }) {
   const { data = [], error } = useChatCards(sessionId);
   if (!sessionId) return null;
-  return <div className="max-h-[40%] shrink-0 overflow-auto space-y-3 px-3"><PlanningLinks sessionId={sessionId} />{error && <p role="alert">{error.message}</p>}
+  return <div className="max-h-[40%] shrink-0 overflow-auto space-y-3 px-3">{error && <p role="alert">{error.message}</p>}
     {data.map((card) => <ChatInteractionCard key={card.id} sessionId={sessionId} card={card} disabled={disabled} />)}
   </div>;
 }

@@ -260,7 +260,8 @@
     "answer": "답변 보내기",
     "links": "계획 대화",
     "issues": "이 대화의 태스크",
-    "unsupported": "계획 모드는 Claude와 Codex만 지원합니다."
+    "unsupported": "계획 모드는 Claude와 Codex만 지원합니다.",
+    "issues_count": "작업 ({{count}})"
   },
   "execution": {
     "parameters": "현재 채팅 설정",

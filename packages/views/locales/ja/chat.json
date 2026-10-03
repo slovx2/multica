@@ -260,7 +260,8 @@
     "answer": "回答を送信",
     "links": "計画チャット",
     "issues": "このチャットのタスク",
-    "unsupported": "計画モードは Claude と Codex のみ対応しています。"
+    "unsupported": "計画モードは Claude と Codex のみ対応しています。",
+    "issues_count": "タスク ({{count}})"
   },
   "execution": {
     "parameters": "このチャットの設定",

@@ -260,7 +260,8 @@
     "answer": "发送回答",
     "links": "规划对话",
     "issues": "此对话创建的任务",
-    "unsupported": "计划模式仅支持 Claude 和 Codex。"
+    "unsupported": "计划模式仅支持 Claude 和 Codex。",
+    "issues_count": "任务 ({{count}})"
   },
   "execution": {
     "parameters": "本次聊天参数",

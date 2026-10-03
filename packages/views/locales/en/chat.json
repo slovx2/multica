@@ -264,7 +264,8 @@
     "answer": "Send answers",
     "links": "Planning chats",
     "issues": "Issues from this chat",
-    "unsupported": "Plan mode is supported only by Claude and Codex."
+    "unsupported": "Plan mode is supported only by Claude and Codex.",
+    "issues_count": "Tasks ({{count}})"
   },
   "execution": {
     "parameters": "Chat parameters",

@@ -21,6 +21,7 @@ import {
 } from "../../editor/use-coordinated-uploads";
 import { SubmitButton } from "@multica/ui/components/common/submit-button";
 import { ChatAddMenu } from "./chat-add-menu";
+import { ChatPlanningIssues } from "./planning-links";
 import { CHAT_COLUMN, CHAT_GUTTER } from "./chat-column";
 import { useChatStore, DRAFT_NEW_SESSION } from "@multica/core/chat";
 import { attachmentToDraftUpload, type DraftUpload } from "@multica/core/drafts";
@@ -768,6 +769,7 @@ export function ChatInput({
                     projectContextUnsupported={projectContextUnsupported}
                   />
                 )}
+                {sessionId && <ChatPlanningIssues key={sessionId} sessionId={sessionId} />}
                 {leftAdornment}
               </div>
             )}
