@@ -37,7 +37,7 @@ vi.mock("./use-chat-context-items", async (importOriginal) => ({
 vi.mock("./use-chat-project-context-support", () => ({ useChatProjectContextSupport: () => true }));
 vi.mock("./use-chat-draft-restore", () => ({ useChatDraftRestore: () => ({}) }));
 vi.mock("./chat-empty-state", () => ({ EmptyState: () => null }));
-vi.mock("./chat-cards", () => ({ ChatCards: () => null }));
+vi.mock("./use-chat-planning", () => ({ useChatPlanning: () => ({ planCards: [], openPlanDialog: () => {} }), ChatPlanningComposer: () => null }));
 vi.mock("./chat-message-list", () => ({ ChatMessageList: () => null, ChatMessageSkeleton: () => null }));
 // Observe the actual window's composer props and callbacks without mounting
 // the rich-text editor. Route initialization and New chat run production code.

@@ -46,7 +46,16 @@
     "remove": "Retirer le message de la file d'attente",
     "more": "Plus d'actions sur la file d'attente",
     "fallback": "Message en file d'attente",
-    "action_failed_toast": "Impossible de mettre à jour le message en file d'attente"
+    "action_failed_toast": "Impossible de mettre à jour le message en file d'attente",
+    "steer_stop": "Arrêter et envoyer",
+    "steer_stop_hint": "Cet agent ne peut pas recevoir de message pendant une réponse. La réponse en cours s'arrête et ce message en démarre une nouvelle.",
+    "steering": "Réorientation…",
+    "steer_failed_toast": "Réorientation impossible ({{reason}}). Le message reste dans la file d'attente.",
+    "steer_failed_reason": {
+      "turn_ended": "la réponse était déjà terminée",
+      "rejected": "l'agent ne l'a pas acceptée",
+      "timeout": "délai de livraison dépassé"
+    }
   },
   "message_list": {
     "show_details": "Afficher les détails",
@@ -265,7 +274,16 @@
     "links": "Chats de planification",
     "issues": "Tâches de ce chat",
     "unsupported": "Le mode plan est disponible uniquement avec Claude et Codex.",
-    "issues_count": "Tâches ({{count}})"
+    "issues_count": "Tâches ({{count}})",
+    "dismissed": "Ignoré",
+    "plan_label": "Plan",
+    "view": "Voir",
+    "revise": "Demander des modifications",
+    "revise_placeholder": "Que faut-il changer dans ce plan ?",
+    "send_revision": "Envoyer les commentaires",
+    "close": "Fermer",
+    "awaiting": "Plan en attente de votre décision",
+    "read_only": "Ce plan n'attend plus de décision."
   },
   "execution": {
     "parameters": "Paramètres du chat",
@@ -277,7 +295,7 @@
   },
   "context": {
     "compaction_failed": "Échec de la compression du contexte",
-    "sync_hint": "Récupère les mises à jour et avance vers la branche amont si le répertoire est propre et uniquement en retard.",
+    "sync_hint": "Récupère les changements distants et avance le répertoire local du projet en toute sécurité",
     "compacted_counts": "Contexte compressé ({{before}}K → {{after}}K)",
     "compact": "Compacter le contexte",
     "warning": "La compaction fait perdre certains détails de la conversation.",
@@ -286,7 +304,7 @@
     "compacting": "Compaction du contexte…",
     "compacted": "Contexte compacté",
     "tokens": "{{used}} / {{window}} tokens",
-    "sync": "Synchroniser",
+    "sync": "Synchroniser le code",
     "syncing": "Synchronisation…",
     "current": "Déjà à jour",
     "updated": "Avance rapide de {{count}} commits",
@@ -306,6 +324,30 @@
     "disabled": "synchronisation automatique désactivée",
     "unsupported_mode": "mode de synchronisation non pris en charge",
     "invalid_directory": "dossier indisponible",
-    "usage_label": "{{percent}}% · {{window}}K"
+    "usage_label": "{{percent}}% · {{window}}K",
+    "sync_confirm_title": "Synchroniser le code du projet maintenant ?",
+    "sync_confirm_running": "L'agent travaille dans ce répertoire. Avancer maintenant peut perturber ce qu'il fait.",
+    "sync_confirm_busy": "Une autre exécution utilise ce répertoire. Avancer maintenant peut la perturber.",
+    "sync_confirm": "Synchroniser quand même"
+  },
+  "questions": {
+    "label": "Questions de l'agent",
+    "progress": "Question {{current}} sur {{total}}",
+    "collapse": "Réduire",
+    "expand": "Afficher les questions",
+    "collapsed_one": "{{count}} question en attente de réponse",
+    "collapsed_other": "{{count}} questions en attente de réponse",
+    "skip_all": "Tout ignorer",
+    "prev": "Précédent",
+    "next": "Suivant",
+    "skip": "Ignorer la question",
+    "review": "Vérifier et envoyer",
+    "submit": "Envoyer les réponses",
+    "back": "Revenir modifier",
+    "other_placeholder": "Autre : rédigez votre réponse",
+    "skipped": "Ignorée",
+    "review_title": "Vérifiez vos réponses",
+    "unanswered": "Sans réponse",
+    "multi_hint": "Plusieurs choix possibles"
   }
 }

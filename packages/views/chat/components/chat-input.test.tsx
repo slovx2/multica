@@ -19,6 +19,15 @@ vi.mock("./chat-settings", async () => ({
   } : null,
 }));
 
+// The real pill needs project/runtime queries; its own behavior is covered in
+// chat-context.test.tsx. Here only placement and wiring matter.
+vi.mock("./chat-context", async () => ({
+  ...(await vi.importActual<typeof import("./chat-context")>("./chat-context")),
+  ChatDirectorySync: (props: { projectId: string; agentId: string; running?: boolean }) => (
+    <span data-testid="directory-sync" data-agent={props.agentId} data-project={props.projectId} data-running={String(!!props.running)} />
+  ),
+}));
+
 // Uploads flow through the module-level coordinator, which calls
 // `api.uploadFile(file, ctx, signal)` (MUL-5181 L2). Tests drive uploads by
 // mocking that call; it resolves a server Attachment row (makeUpload's extra
@@ -638,6 +647,30 @@ describe("ChatInput project context", () => {
         "Project description won't apply — this agent's daemon needs an upgrade",
       ),
     ).not.toBeInTheDocument();
+  });
+
+  it("offers code sync beside the project picker before the chat has a session", () => {
+    renderInput({
+      sessionId: null,
+      agentId: "agent-1",
+      isRunning: true,
+      projects: [sampleProject],
+      projectId: "project-alpha",
+      onProjectChange: vi.fn(),
+    });
+    const sync = screen.getByTestId("directory-sync");
+    expect(sync).toHaveAttribute("data-project", "project-alpha");
+    expect(sync).toHaveAttribute("data-agent", "agent-1");
+    expect(sync).toHaveAttribute("data-running", "true");
+    // Same group as the picker, so other tags never push it away.
+    expect(sync.parentElement).toContainElement(
+      screen.getByRole("button", { name: "Change project context" }),
+    );
+  });
+
+  it("hides code sync without a project or agent", () => {
+    renderInput({ sessionId: null, projects: [sampleProject], projectId: "project-alpha", onProjectChange: vi.fn() });
+    expect(screen.queryByTestId("directory-sync")).not.toBeInTheDocument();
   });
 
   it("keeps context tags on a single shrinking row", () => {

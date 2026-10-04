@@ -44,7 +44,16 @@
     "remove": "キューから削除",
     "more": "その他のキュー操作",
     "fallback": "キュー内のメッセージ",
-    "action_failed_toast": "キュー内のメッセージを更新できませんでした"
+    "action_failed_toast": "キュー内のメッセージを更新できませんでした",
+    "steer_stop": "停止して送信",
+    "steer_stop_hint": "このエージェントは返信中にメッセージを受け取れません。現在の返信を停止し、このメッセージで新しく開始します。",
+    "steering": "指示を送信中…",
+    "steer_failed_toast": "指示できませんでした（{{reason}}）。メッセージはキューに残っています。",
+    "steer_failed_reason": {
+      "turn_ended": "返信はすでに終了しました",
+      "rejected": "エージェントが受け付けませんでした",
+      "timeout": "送信がタイムアウトしました"
+    }
   },
   "message_list": {
     "show_details": "詳細を表示",
@@ -248,7 +257,7 @@
   },
   "planning": {
     "mode": "計画",
-    "pending": "保留中",
+    "pending": "確認待ち",
     "approved": "承認済み",
     "rejected": "却下済み",
     "superseded": "新しい計画に置換",
@@ -261,7 +270,16 @@
     "links": "計画チャット",
     "issues": "このチャットのタスク",
     "unsupported": "計画モードは Claude と Codex のみ対応しています。",
-    "issues_count": "タスク ({{count}})"
+    "issues_count": "タスク ({{count}})",
+    "dismissed": "スキップ済み",
+    "plan_label": "計画",
+    "view": "表示",
+    "revise": "修正の意見",
+    "revise_placeholder": "計画のどこを変えますか？",
+    "send_revision": "意見を送信",
+    "close": "閉じる",
+    "awaiting": "計画の確認待ち",
+    "read_only": "この計画は確認待ちではありません。"
   },
   "execution": {
     "parameters": "このチャットの設定",
@@ -273,7 +291,7 @@
   },
   "context": {
     "compaction_failed": "コンテキストの圧縮に失敗しました",
-    "sync_hint": "リモートの更新を取得し、作業ツリーがクリーンで遅れている場合に上流へ早送りします。",
+    "sync_hint": "リモートを取得し、プロジェクトのローカルディレクトリを安全に早送りします",
     "compacted_counts": "圧縮済み（{{before}}K → {{after}}K）",
     "compact": "コンテキストを圧縮",
     "warning": "圧縮すると会話の詳細の一部が失われます。",
@@ -282,7 +300,7 @@
     "compacting": "コンテキストを圧縮中…",
     "compacted": "圧縮済み",
     "tokens": "{{used}} / {{window}} トークン",
-    "sync": "同期",
+    "sync": "コードを同期",
     "syncing": "同期中…",
     "current": "最新の状態です",
     "updated": "{{count}} コミットを早送りしました",
@@ -302,6 +320,29 @@
     "disabled": "自動同期はオフです",
     "unsupported_mode": "未対応の同期モードです",
     "invalid_directory": "ディレクトリを利用できません",
-    "usage_label": "{{percent}}% · {{window}}K"
+    "usage_label": "{{percent}}% · {{window}}K",
+    "sync_confirm_title": "今すぐプロジェクトのコードを同期しますか？",
+    "sync_confirm_running": "エージェントがこのディレクトリで作業中です。今早送りすると作業に影響する可能性があります。",
+    "sync_confirm_busy": "別の実行がこのディレクトリを使用中です。今早送りするとその実行に影響する可能性があります。",
+    "sync_confirm": "同期する"
+  },
+  "questions": {
+    "label": "エージェントからの質問",
+    "progress": "質問 {{current}} / {{total}}",
+    "collapse": "折りたたむ",
+    "expand": "質問を表示",
+    "collapsed_other": "回答待ちの質問が {{count}} 件あります",
+    "skip_all": "すべてスキップ",
+    "prev": "前へ",
+    "next": "次へ",
+    "skip": "この質問をスキップ",
+    "review": "確認して送信",
+    "submit": "回答を送信",
+    "back": "修正に戻る",
+    "other_placeholder": "その他：自分で回答を書く",
+    "skipped": "スキップ",
+    "review_title": "回答を確認",
+    "unanswered": "未回答",
+    "multi_hint": "複数選択できます"
   }
 }

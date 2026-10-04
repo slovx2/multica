@@ -10,7 +10,11 @@ updates and fetch failures add a readable Chinese prompt note;
 current or successfully updated directories add no note. Fetch failures also
 produce a warning without failing the chat.
 
-The Sync button uses a bounded heartbeat request independently of the chat queue.
+The "Sync code" pill sits beside the composer's project picker and is available
+whenever a project and an agent are selected, including a new chat before its
+first message. While the chat is running, or when the result reports another run
+holding the directory, the composer asks for confirmation before sending `force`.
+It uses a bounded heartbeat request independently of the chat queue.
 The project-scoped endpoint works before a chat session exists. An explicit click
 requests fetch and safe fast-forward even when automatic sync is off. A confirmed
 `force` request bypasses the directory task lock, while preserving clean-tree,
@@ -72,3 +76,25 @@ instructions as ordinary chat messages.
 
 Claude accepts guidance at hook boundaries. A long-running tool can therefore
 delay injection until the next hook; it does not interrupt that tool.
+
+In the composer, a delivering row shows "Steering…" and the steer button reads
+"Stop and send" whenever the head is not `steerable`. A delivery that fails while
+the queue is on screen is announced once; the row stays in the queue.
+
+## Plans and questions
+
+A plan is shown as the agent's own message, anchored after the reply of the run
+that wrote it, and opens in a large dialog. A revised plan supersedes the earlier
+pending one, which is no longer shown; decided plans stay as history. Only while
+the newest row of the conversation is a pending plan does the composer show the
+decision bar (view, approve, request changes, reject); the dialog offers the same
+actions under the same condition and is otherwise read-only. Closing the dialog
+never decides anything.
+
+Questions are answered one at a time in a panel above the composer: a single
+choice moves to the next question, multiple choice and written replies use Next,
+and any question can be skipped. Cards with several questions end in a review
+step; a single question submits directly. "Skip all" dismisses the card and lets
+the agent decide. The panel collapses rather than skipping and disappears as soon
+as the answers are sent.
+

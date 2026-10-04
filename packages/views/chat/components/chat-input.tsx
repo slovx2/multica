@@ -128,6 +128,8 @@ interface ChatInputProps {
   contextItems?: MentionItem[];
   /** Optional project context for the draft or current chat session. */
   runtimeId?: string;
+  /** Agent the composer sends to; enables the project "Sync code" pill. */
+  agentId?: string;
   model?: string;
   sessionId?: string | null;
   projects?: Project[];
@@ -172,6 +174,7 @@ export function ChatInput({
   leftAdornment,
   contextItems,
   runtimeId,
+  agentId,
   model,
   sessionId,
   projects = [],
@@ -614,6 +617,16 @@ export function ChatInput({
     !isProjectUpdating;
   const selectedProject = projects.find((project) => project.id === projectId);
 
+  const directorySync = projectId && agentId ? (
+    <ChatDirectorySync
+      projectId={projectId}
+      agentId={agentId}
+      runtimeId={runtimeId}
+      running={!!isRunning}
+      disabled={disabled || noAgent}
+    />
+  ) : null;
+
   const [compactOpen, setCompactOpen] = useState(false);
   const settings = useChatSessionSettings({
     enabled: sessionId !== undefined,
@@ -678,6 +691,9 @@ export function ChatInput({
           >
             {onProjectChange && (
               <>
+                {/* The sync pill rides with the picker as one group so other
+                 *  tags can never push it away from the project it syncs. */}
+                <div className="inline-flex min-w-0 shrink items-center gap-1">
                 <div
                   className={cn(
                     "inline-flex min-w-0 max-w-56 shrink",
@@ -703,6 +719,8 @@ export function ChatInput({
                     }
                   />
                 </div>
+                {directorySync}
+                </div>
                 {projectContextUnsupported && (
                   <span
                     title={t(($) => $.input.project_context_unsupported)}
@@ -717,7 +735,7 @@ export function ChatInput({
               </>
             )}
             <ChatSettingsTags settings={settings} />
-            {sessionId && projectId && <ChatDirectorySync sessionId={sessionId} projectId={projectId} runtimeId={runtimeId} disabled={disabled} />}
+            {!onProjectChange && directorySync}
             <ChatContextBadge state={settings?.contextState} supported={settings?.supportsPlan === true} running={!!isRunning} />
           </div>
         )}

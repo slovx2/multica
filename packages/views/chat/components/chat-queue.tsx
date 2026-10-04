@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   CornerDownRight,
   Ellipsis,
@@ -22,10 +23,27 @@ import { cn } from "@multica/ui/lib/utils";
 import { useT } from "../../i18n";
 import { CHAT_COLUMN, CHAT_GUTTER } from "./chat-column";
 
+/** Toast copy for a steer that could not be delivered into the running turn. */
+export function useSteerFailedMessage() {
+  const { t } = useT("chat");
+  return useCallback(
+    (reason: string | undefined) => {
+      const label =
+        reason === "turn_ended" || reason === "rejected" || reason === "timeout"
+          ? t(($) => $.queue.steer_failed_reason[reason])
+          : reason || t(($) => $.queue.action_failed_toast);
+      return t(($) => $.queue.steer_failed_toast, { reason: label });
+    },
+    [t],
+  );
+}
+
 interface ChatQueueProps {
   tasks: ChatQueuedTask[];
   headStatus: string | undefined;
   onSendNow: (taskId: string) => Promise<void> | void;
+  /** Head run accepts mid-turn input: "Steer" injects instead of stop + send. */
+  steerable?: boolean;
   /** Blocks "send now" independently of the head task's status — used when the
    *  caller may no longer invoke the agent, since steering a queued task
    *  dispatches a run the server would refuse (MUL-6380). */
@@ -39,6 +57,7 @@ export function ChatQueue({
   tasks,
   headStatus,
   onSendNow,
+  steerable = false,
   sendNowDisabled = false,
   onEdit,
   onRemove,
@@ -56,11 +75,31 @@ export function ChatQueue({
   // for something waiting cannot fix is the bug (MUL-6380).
   const sendNowLabel = t(($) =>
     canSendNow
-      ? $.queue.steer
+      ? steerable ? $.queue.steer : $.queue.steer_stop_hint
       : sendNowDisabled
         ? $.queue.steer_no_permission
         : $.queue.steer_unavailable,
   );
+  const sendNowText = steerable ? t(($) => $.queue.steer) : t(($) => $.queue.steer_stop);
+
+  // Announce a delivery that fails while this queue is on screen. Receipts
+  // that were already failed when the queue loaded are history, not news; the
+  // row itself is back in the normal queue either way.
+  const steerFailedMessage = useSteerFailedMessage();
+  const lastStatus = useRef(new Map<string, string | undefined>());
+  useEffect(() => {
+    const seen = lastStatus.current;
+    for (const task of tasks) {
+      const previous = seen.get(task.task_id);
+      if (
+        task.supplement_status === "failed" &&
+        (previous === "pending" || previous === "delivering")
+      ) {
+        toast.error(steerFailedMessage(task.supplement_failure_reason));
+      }
+      seen.set(task.task_id, task.supplement_status);
+    }
+  }, [tasks, steerFailedMessage]);
 
   if (tasks.length === 0) return null;
 
@@ -108,6 +147,9 @@ export function ChatQueue({
               const editKey = `edit:${task.task_id}`;
               const removeKey = `remove:${task.task_id}`;
               const clearKey = `clear:${task.task_id}`;
+              const steering =
+                task.supplement_status === "pending" ||
+                task.supplement_status === "delivering";
               return (
                 <div
                   key={task.task_id}
@@ -123,6 +165,16 @@ export function ChatQueue({
                     {task.action === "compact" ? t(($) => $.context.compact) : task.content?.trim() || t(($) => $.queue.fallback)}
                   </span>
                   <div className="flex shrink-0 items-center gap-0.5">
+                    {steering ? (
+                      <span
+                        data-slot="chat-queue-steering"
+                        role="status"
+                        className="inline-flex shrink-0 items-center gap-1 px-1.5 text-caption text-brand"
+                      >
+                        <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+                        {t(($) => $.queue.steering)}
+                      </span>
+                    ) : (
                     <span
                       className="shrink-0"
                       title={sendNowLabel}
@@ -132,7 +184,7 @@ export function ChatQueue({
                         size="xs"
                         className="px-1.5 font-normal text-muted-foreground"
                         disabled={busyAction !== null || !canSendNow || task.action === "compact"}
-                        aria-label={sendNowLabel}
+                        aria-label={canSendNow ? sendNowText : sendNowLabel}
                         onClick={() => void run(sendNowKey, () => onSendNow(task.task_id))}
                       >
                         {busyAction === sendNowKey ? (
@@ -140,9 +192,10 @@ export function ChatQueue({
                         ) : (
                           <CornerDownRight aria-hidden="true" />
                         )}
-                        {t(($) => $.queue.steer)}
+                        {sendNowText}
                       </Button>
                     </span>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon-xs"
@@ -185,7 +238,7 @@ export function ChatQueue({
                         className="w-auto"
                       >
                         <DropdownMenuItem
-                          disabled={busyAction !== null || task.action === "compact"}
+                          disabled={busyAction !== null || task.action === "compact" || steering}
                           onClick={() => void run(editKey, () => onEdit(task.task_id))}
                         >
                           <Pencil aria-hidden="true" />

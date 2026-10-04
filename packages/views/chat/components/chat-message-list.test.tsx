@@ -953,3 +953,36 @@ describe("ChatMessageList onboarding starter cards", () => {
     expect(screen.getByRole("button", { name: "Later chip" })).toBeEnabled();
   });
 });
+
+describe("ChatMessageList plan rows", () => {
+  it("anchors a plan after its task's reply, not at its creation time", () => {
+    const messages = [
+      { id: "u1", chat_session_id: "s", role: "user" as const, content: "plan it", task_id: "task-1", created_at: "2026-10-04T10:00:00Z" },
+      { id: "a1", chat_session_id: "s", role: "assistant" as const, content: "Here is the plan", task_id: "task-1", created_at: "2026-10-04T10:00:10Z" },
+      { id: "u2", chat_session_id: "s", role: "user" as const, content: "thanks", task_id: "task-2", created_at: "2026-10-04T10:01:00Z" },
+    ];
+    const onOpenPlan = vi.fn();
+    const { container } = render(
+      <I18nProvider locale="en" resources={TEST_RESOURCES}>
+        <QueryClientProvider client={new QueryClient()}>
+          <ChatMessageList
+            messages={messages}
+            pendingTask={null}
+            availability="online"
+            planCards={[{
+              id: "plan-1", task_id: "task-1", kind: "plan", status: "approved",
+              // Persisted before the reply row; must still follow it.
+              created_at: "2026-10-04T10:00:05Z",
+              payload: { title: "Plan", markdown: "# Ship the composer" },
+            }]}
+            onOpenPlan={onOpenPlan}
+          />
+        </QueryClientProvider>
+      </I18nProvider>,
+    );
+    const keys = Array.from(container.querySelectorAll("[data-row-key]")).map((row) => row.getAttribute("data-row-key"));
+    expect(keys).toEqual(["u1", "task:task-1", "plan:plan-1", "u2"]);
+    fireEvent.click(screen.getByRole("button", { name: /Ship the composer/ }));
+    expect(onOpenPlan).toHaveBeenCalledWith("plan-1");
+  });
+});

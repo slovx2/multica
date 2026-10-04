@@ -13,9 +13,21 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "@multica/ui/components/ui/dropdown-menu";
+import { cn } from "@multica/ui/lib/utils";
 import type { Project } from "@multica/core/types";
 import { ProjectIcon } from "../../projects/components/project-icon";
 import { useT } from "../../i18n";
+
+/**
+ * Touch-friendly sizing for the composer "+" menu and the items it hosts
+ * (ChatSettingsMenu). Scoped here rather than in the shared dropdown
+ * primitive: coarse pointers get 44px rows, desktop stays compact.
+ */
+export const CHAT_MENU_ITEM_CLASS =
+  "min-h-8 gap-2 px-2 pointer-coarse:min-h-11 pointer-coarse:gap-3 pointer-coarse:px-3 pointer-coarse:text-body-lg";
+export const CHAT_MENU_CONTENT_CLASS = "min-w-56";
+export const CHAT_SUBMENU_CONTENT_CLASS =
+  "min-w-48 max-w-[calc(100vw-1rem)] pointer-coarse:min-w-52";
 
 interface ChatAddMenuProps {
   extraItems?: ReactNode;
@@ -75,24 +87,35 @@ export function ChatAddMenu({
             </Button>
           }
         />
-        <DropdownMenuContent align="start" side="top" sideOffset={6}>
+        <DropdownMenuContent
+          align="start"
+          side="top"
+          sideOffset={6}
+          className={CHAT_MENU_CONTENT_CLASS}
+        >
           {extraItems}
           {onSelectFile && (
-            <DropdownMenuItem onClick={() => inputRef.current?.click()}>
+            <DropdownMenuItem
+              className={CHAT_MENU_ITEM_CLASS}
+              onClick={() => inputRef.current?.click()}
+            >
               <ImageIcon />
               {t(($) => $.input.upload_file)}
             </DropdownMenuItem>
           )}
           {onSelectProject && (
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
+              <DropdownMenuSubTrigger className={CHAT_MENU_ITEM_CLASS}>
                 <FolderKanban />
                 {t(($) => $.input.project_context)}
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="max-h-72 min-w-52 overflow-y-auto">
+              <DropdownMenuSubContent
+                className={cn(CHAT_SUBMENU_CONTENT_CLASS, "max-h-72 overflow-y-auto")}
+              >
                 {projects.map((project) => (
                   <DropdownMenuItem
                     key={project.id}
+                    className={CHAT_MENU_ITEM_CLASS}
                     onClick={() => onSelectProject(project.id)}
                   >
                     <ProjectIcon project={project} size="md" />
@@ -107,7 +130,10 @@ export function ChatAddMenu({
                 )}
                 {projectId && <DropdownMenuSeparator />}
                 {projectId && (
-                  <DropdownMenuItem onClick={() => onSelectProject(null)}>
+                  <DropdownMenuItem
+                    className={CHAT_MENU_ITEM_CLASS}
+                    onClick={() => onSelectProject(null)}
+                  >
                     <X />
                     {t(($) => $.input.remove_project_context)}
                   </DropdownMenuItem>

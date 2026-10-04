@@ -16,7 +16,7 @@ import zhChat from "../../locales/zh-Hans/chat.json";
 import type { ReactNode } from "react";
 
 const { send, sync, status } = vi.hoisted(() => ({ send: vi.fn(), sync: vi.fn(), status: vi.fn() }));
-vi.mock("@multica/core/api", () => ({ api: { compactChatContext: send, syncChatDirectory: sync, getChatDirectorySync: status } }));
+vi.mock("@multica/core/api", () => ({ api: { compactChatContext: send, syncProjectDirectory: sync, getProjectDirectorySync: status } }));
 vi.mock("@multica/core/hooks", () => ({ useWorkspaceId: () => "workspace" }));
 function mount(children: ReactNode) {
   return render(
@@ -41,10 +41,8 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 describe("native chat context", () => {
-  it("explains manual fast-forward and allows sync when automatic sync is off", async () => {
-    sync.mockResolvedValue({ id: "sync" });
-    status.mockResolvedValue({ status: "completed", result: { status: "current" } });
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  function syncClient() {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } } });
     client.setQueryData(projectResourcesOptions("workspace", "project").queryKey, { total: 1, resources: [{
       id: "resource", project_id: "project", workspace_id: "workspace", label: null,
       position: 0, created_at: "2026-10-03T00:00:00Z", created_by: null,
@@ -56,16 +54,49 @@ describe("native chat context", () => {
       device_info: "", metadata: {}, owner_id: null, visibility: "private",
       last_seen_at: null, created_at: "2026-10-03T00:00:00Z", updated_at: "2026-10-03T00:00:00Z",
     }]);
-    render(<I18nProvider locale="zh-Hans" resources={{ "zh-Hans": { chat: zhChat } }}><QueryClientProvider client={client}>
-      <ChatDirectorySync sessionId="session" projectId="project" runtimeId="runtime" />
+    return client;
+  }
+  function mountSync(running = false, locale: "en" | "zh-Hans" = "en") {
+    return render(<I18nProvider locale={locale} resources={{ en: { chat: enChat }, "zh-Hans": { chat: zhChat } }}><QueryClientProvider client={syncClient()}>
+      <ChatDirectorySync projectId="project" agentId="agent" runtimeId="runtime" running={running} />
     </QueryClientProvider></I18nProvider>);
-    const button = screen.getByRole("button", { name: "同步" });
+  }
+  it("syncs the project for the agent without a session and explains the action", async () => {
+    sync.mockResolvedValue({ id: "sync" });
+    status.mockResolvedValue({ status: "completed", result: { status: "current" } });
+    mountSync(false, "zh-Hans");
+    const button = screen.getByRole("button", { name: "同步代码" });
     expect(button).toBeEnabled();
     expect(button).toHaveAttribute("title", zhChat.context.sync_hint);
     fireEvent.click(button);
-    await waitFor(() => expect(sync).toHaveBeenCalledWith("session"));
-    await waitFor(() => expect(status).toHaveBeenCalledWith("session", "sync"));
+    await waitFor(() => expect(sync).toHaveBeenCalledWith("project", { agent_id: "agent", force: false }));
+    await waitFor(() => expect(status).toHaveBeenCalledWith("project", "sync"));
     await waitFor(() => expect(button).toBeEnabled());
+  });
+  it("asks before syncing while the agent runs and forces only after confirmation", async () => {
+    sync.mockResolvedValue({ id: "sync" });
+    status.mockResolvedValue({ status: "completed", result: { status: "current" } });
+    mountSync(true);
+    fireEvent.click(screen.getByRole("button", { name: "Sync code" }));
+    expect(await screen.findByText(enChat.context.sync_confirm_running)).toBeVisible();
+    expect(sync).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(sync).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Sync code" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Sync anyway" }));
+    await waitFor(() => expect(sync).toHaveBeenCalledWith("project", { agent_id: "agent", force: true }));
+  });
+  it("turns a busy directory into the same confirmation and retries with force", async () => {
+    sync.mockResolvedValueOnce({ id: "first" }).mockResolvedValueOnce({ id: "second" });
+    status.mockImplementation(async (_project: string, id: string) => id === "first"
+      ? { status: "completed", result: { status: "skipped", reason: "directory_busy", ahead: 0, behind: 2, updated: 0 } }
+      : { status: "completed", result: { status: "updated", ahead: 0, behind: 0, updated: 2 } });
+    mountSync(false);
+    fireEvent.click(screen.getByRole("button", { name: "Sync code" }));
+    expect(await screen.findByText(enChat.context.sync_confirm_busy)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Sync anyway" }));
+    await waitFor(() => expect(sync).toHaveBeenLastCalledWith("project", { agent_id: "agent", force: true }));
+    await waitFor(() => expect(status).toHaveBeenCalledWith("project", "second"));
   });
   it("keeps the last usage visible beside a compaction failure", () => {
     mount(<ChatContextBadge state={{ usage: { used: 420000, window: 1000000 }, compaction: { status: "failed", error: "No conversation found" } }} />);

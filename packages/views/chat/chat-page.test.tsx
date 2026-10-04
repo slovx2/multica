@@ -20,7 +20,7 @@ const TEST_RESOURCES = { en: { common: enCommon, chat: enChat } };
 // a ref-driven fake the tests can steer. The thread-list stub stays
 // interactive: selecting a thread is the user action that must supersede a
 // pending `?agent=` intent.
-vi.mock("./components/chat-cards", () => ({ ChatCards: () => null }));
+vi.mock("./components/use-chat-planning", () => ({ useChatPlanning: () => ({ planCards: [], openPlanDialog: () => {} }), ChatPlanningComposer: () => null }));
 
 vi.mock("./components/chat-message-list", () => ({
   ChatMessageList: () => <div>chat-message-list</div>,

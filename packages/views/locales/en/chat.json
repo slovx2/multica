@@ -46,7 +46,16 @@
     "remove": "Remove queued message",
     "more": "More queue actions",
     "fallback": "Queued message",
-    "action_failed_toast": "Couldn't update the queued message"
+    "action_failed_toast": "Couldn't update the queued message",
+    "steer_stop": "Stop and send",
+    "steer_stop_hint": "This agent can't take messages mid-reply. The current reply stops and this message starts a new one.",
+    "steering": "Steering…",
+    "steer_failed_toast": "Couldn't steer ({{reason}}). The message stays in the queue.",
+    "steer_failed_reason": {
+      "turn_ended": "the reply already ended",
+      "rejected": "the agent didn't accept it",
+      "timeout": "delivery timed out"
+    }
   },
   "message_list": {
     "show_details": "Show details",
@@ -265,7 +274,16 @@
     "links": "Planning chats",
     "issues": "Issues from this chat",
     "unsupported": "Plan mode is supported only by Claude and Codex.",
-    "issues_count": "Tasks ({{count}})"
+    "issues_count": "Tasks ({{count}})",
+    "dismissed": "Skipped",
+    "plan_label": "Plan",
+    "view": "View",
+    "revise": "Request changes",
+    "revise_placeholder": "What should change in this plan?",
+    "send_revision": "Send feedback",
+    "close": "Close",
+    "awaiting": "Plan awaiting your decision",
+    "read_only": "This plan is no longer awaiting a decision."
   },
   "execution": {
     "parameters": "Chat parameters",
@@ -277,7 +295,7 @@
   },
   "context": {
     "compaction_failed": "Context compaction failed",
-    "sync_hint": "Fetch remote updates and fast-forward to upstream when the working tree is clean and only behind.",
+    "sync_hint": "Pull remote changes and safely fast-forward the project's local directory",
     "compacted_counts": "Compacted ({{before}}K → {{after}}K)",
     "compact": "Compact context",
     "warning": "Compaction will lose some conversation details.",
@@ -286,7 +304,7 @@
     "compacting": "Compacting context…",
     "compacted": "Compacted",
     "tokens": "{{used}} / {{window}} tokens",
-    "sync": "Sync",
+    "sync": "Sync code",
     "syncing": "Syncing…",
     "current": "Already up to date",
     "updated": "Fast-forwarded {{count}} commits",
@@ -306,6 +324,30 @@
     "disabled": "auto sync is off",
     "unsupported_mode": "unsupported sync mode",
     "invalid_directory": "directory is unavailable",
-    "usage_label": "{{percent}}% · {{window}}K"
+    "usage_label": "{{percent}}% · {{window}}K",
+    "sync_confirm_title": "Sync the project code now?",
+    "sync_confirm_running": "The agent is working in this directory. Fast-forwarding now may affect what it is doing.",
+    "sync_confirm_busy": "Another run is using this directory. Fast-forwarding now may affect that run.",
+    "sync_confirm": "Sync anyway"
+  },
+  "questions": {
+    "label": "Questions from the agent",
+    "progress": "Question {{current}} of {{total}}",
+    "collapse": "Collapse",
+    "expand": "Show questions",
+    "collapsed_one": "{{count}} question awaiting your answer",
+    "collapsed_other": "{{count}} questions awaiting your answer",
+    "skip_all": "Skip all",
+    "prev": "Previous",
+    "next": "Next",
+    "skip": "Skip question",
+    "review": "Review and submit",
+    "submit": "Submit answers",
+    "back": "Back to edit",
+    "other_placeholder": "Other: write your own reply",
+    "skipped": "Skipped",
+    "review_title": "Review your answers",
+    "unanswered": "Not answered",
+    "multi_hint": "Select all that apply"
   }
 }

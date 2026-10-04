@@ -111,6 +111,8 @@ vi.mock("@multica/core/api", () => ({
     constructor(
       message: string,
       readonly status: number,
+      readonly statusText = "",
+      readonly body?: unknown,
     ) {
       super(message);
     }
@@ -120,6 +122,7 @@ vi.mock("@multica/core/api", () => ({
     cancelTaskById: vi.fn(),
     clearQueuedChatTasks: vi.fn(),
     prioritizeQueuedChatTask: vi.fn(),
+    steerQueuedChatTask: vi.fn(),
   },
   // Names the 403 that a revoked invoke permission raises (MUL-4525); plain
   // failures have no reason code.
@@ -534,6 +537,7 @@ describe("useChatController queued task actions", () => {
     vi.mocked(api.cancelTaskById).mockReset();
     vi.mocked(api.clearQueuedChatTasks).mockReset();
     vi.mocked(api.prioritizeQueuedChatTask).mockReset();
+    vi.mocked(api.steerQueuedChatTask).mockReset();
     h.removeFromCaches.mockClear();
     h.store.enqueuePendingSendRestore.mockClear();
     h.store.pendingSendRestores = {};
@@ -810,6 +814,77 @@ describe("useChatController queued task actions", () => {
     expect(
       vi.mocked(api.prioritizeQueuedChatTask).mock.invocationCallOrder[0],
     ).toBeLessThan(vi.mocked(api.cancelTaskById).mock.invocationCallOrder[0]!);
+  });
+
+  it("steers into the running turn without stopping it when the head is steerable", async () => {
+    const pending: ChatPendingTask = {
+      task_id: "task-active",
+      status: "running",
+      steerable: true,
+      queued_tasks: [
+        { task_id: "task-queued", status: "queued", created_at: "2026-07-01T00:00:01Z" },
+      ],
+    };
+    h.queryClient.getQueryData.mockReturnValue(pending);
+    vi.mocked(api.steerQueuedChatTask).mockResolvedValue({
+      task_id: "task-queued",
+      active_task_id: "task-active",
+      message_id: "message-queued",
+      status: "pending",
+    });
+    const result = setup("sA", [sA], [agentA], pending);
+
+    await act(async () => {
+      await result.current.handleSendQueuedTaskNow("task-queued");
+    });
+
+    expect(api.steerQueuedChatTask).toHaveBeenCalledWith("sA", "task-queued", expect.any(String));
+    expect(api.prioritizeQueuedChatTask).not.toHaveBeenCalled();
+    expect(api.cancelTaskById).not.toHaveBeenCalled();
+  });
+
+  it("keeps the message queued when the turn ended before the steer landed", async () => {
+    const pending: ChatPendingTask = {
+      task_id: "task-active",
+      status: "running",
+      steerable: true,
+      queued_tasks: [
+        { task_id: "task-queued", status: "queued", created_at: "2026-07-01T00:00:01Z" },
+      ],
+    };
+    h.queryClient.getQueryData.mockReturnValue(pending);
+    vi.mocked(api.steerQueuedChatTask).mockRejectedValue(
+      new ApiError("no running reply", 409, "Conflict", { code: "turn_ended" }),
+    );
+    const result = setup("sA", [sA], [agentA], pending);
+
+    await act(async () => {
+      await result.current.handleSendQueuedTaskNow("task-queued");
+    });
+
+    expect(h.queryClient.setQueryData).toHaveBeenLastCalledWith(expect.anything(), pending);
+    expect(api.prioritizeQueuedChatTask).not.toHaveBeenCalled();
+  });
+
+  it("restores the queue when the steer request fails", async () => {
+    const pending: ChatPendingTask = {
+      task_id: "task-active",
+      status: "running",
+      steerable: true,
+      queued_tasks: [
+        { task_id: "task-queued", status: "queued", created_at: "2026-07-01T00:00:01Z" },
+      ],
+    };
+    h.queryClient.getQueryData.mockReturnValue(pending);
+    vi.mocked(api.steerQueuedChatTask).mockRejectedValue(new Error("offline"));
+    const result = setup("sA", [sA], [agentA], pending);
+
+    await act(async () => {
+      await result.current.handleSendQueuedTaskNow("task-queued");
+    });
+
+    expect(h.queryClient.setQueryData).toHaveBeenLastCalledWith(expect.anything(), pending);
+    expect(api.cancelTaskById).not.toHaveBeenCalled();
   });
 
   it("restores the pending snapshot when send-now loses a queued race", async () => {

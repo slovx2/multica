@@ -44,7 +44,16 @@
     "remove": "대기열에서 삭제",
     "more": "추가 대기열 작업",
     "fallback": "대기 중인 메시지",
-    "action_failed_toast": "대기 중인 메시지를 업데이트하지 못했습니다"
+    "action_failed_toast": "대기 중인 메시지를 업데이트하지 못했습니다",
+    "steer_stop": "중지 후 보내기",
+    "steer_stop_hint": "이 에이전트는 답변 도중 메시지를 받을 수 없습니다. 현재 답변을 중지하고 이 메시지로 새로 시작합니다.",
+    "steering": "지시 전달 중…",
+    "steer_failed_toast": "지시하지 못했습니다({{reason}}). 메시지는 대기열에 남아 있습니다.",
+    "steer_failed_reason": {
+      "turn_ended": "답변이 이미 끝났습니다",
+      "rejected": "에이전트가 받지 않았습니다",
+      "timeout": "전달 시간이 초과되었습니다"
+    }
   },
   "message_list": {
     "show_details": "세부 정보 보기",
@@ -248,7 +257,7 @@
   },
   "planning": {
     "mode": "계획",
-    "pending": "대기 중",
+    "pending": "확인 대기",
     "approved": "승인됨",
     "rejected": "거절됨",
     "superseded": "새 계획으로 대체됨",
@@ -261,7 +270,16 @@
     "links": "계획 대화",
     "issues": "이 대화의 태스크",
     "unsupported": "계획 모드는 Claude와 Codex만 지원합니다.",
-    "issues_count": "작업 ({{count}})"
+    "issues_count": "작업 ({{count}})",
+    "dismissed": "건너뜀",
+    "plan_label": "계획",
+    "view": "보기",
+    "revise": "수정 의견",
+    "revise_placeholder": "계획에서 무엇을 바꿀까요?",
+    "send_revision": "의견 보내기",
+    "close": "닫기",
+    "awaiting": "계획 확인 대기 중",
+    "read_only": "이 계획은 더 이상 확인을 기다리지 않습니다."
   },
   "execution": {
     "parameters": "현재 채팅 설정",
@@ -273,7 +291,7 @@
   },
   "context": {
     "compaction_failed": "컨텍스트 압축 실패",
-    "sync_hint": "원격 업데이트를 가져오고 작업 트리가 깨끗하며 뒤처진 경우 업스트림으로 빨리 감기합니다.",
+    "sync_hint": "원격 변경을 가져와 프로젝트 로컬 디렉터리를 안전하게 빨리 감기합니다",
     "compacted_counts": "압축됨 ({{before}}K → {{after}}K)",
     "compact": "컨텍스트 압축",
     "warning": "압축하면 일부 대화 세부 정보가 사라집니다.",
@@ -282,7 +300,7 @@
     "compacting": "컨텍스트 압축 중…",
     "compacted": "압축 완료",
     "tokens": "{{used}} / {{window}} 토큰",
-    "sync": "동기화",
+    "sync": "코드 동기화",
     "syncing": "동기화 중…",
     "current": "최신 상태입니다",
     "updated": "{{count}}개 커밋을 빠르게 병합했습니다",
@@ -302,6 +320,29 @@
     "disabled": "자동 동기화가 꺼져 있습니다",
     "unsupported_mode": "지원하지 않는 동기화 모드입니다",
     "invalid_directory": "디렉터리를 사용할 수 없습니다",
-    "usage_label": "{{percent}}% · {{window}}K"
+    "usage_label": "{{percent}}% · {{window}}K",
+    "sync_confirm_title": "지금 프로젝트 코드를 동기화할까요?",
+    "sync_confirm_running": "에이전트가 이 디렉터리에서 작업 중입니다. 지금 빨리 감기하면 작업에 영향을 줄 수 있습니다.",
+    "sync_confirm_busy": "다른 실행이 이 디렉터리를 사용 중입니다. 지금 빨리 감기하면 해당 실행에 영향을 줄 수 있습니다.",
+    "sync_confirm": "그래도 동기화"
+  },
+  "questions": {
+    "label": "에이전트의 질문",
+    "progress": "질문 {{current}} / {{total}}",
+    "collapse": "접기",
+    "expand": "질문 보기",
+    "collapsed_other": "답변을 기다리는 질문 {{count}}개",
+    "skip_all": "모두 건너뛰기",
+    "prev": "이전",
+    "next": "다음",
+    "skip": "이 질문 건너뛰기",
+    "review": "검토 후 제출",
+    "submit": "답변 제출",
+    "back": "수정으로 돌아가기",
+    "other_placeholder": "기타: 직접 답변 작성",
+    "skipped": "건너뜀",
+    "review_title": "답변 검토",
+    "unanswered": "답변 안 함",
+    "multi_hint": "여러 개 선택 가능"
   }
 }

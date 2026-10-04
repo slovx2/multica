@@ -1,43 +1,63 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { I18nProvider } from "@multica/core/i18n/react";
 import { describe, expect, it, vi } from "vitest";
+import type { ChatQueuedTask } from "@multica/core/types";
 import enChat from "../../locales/en/chat.json";
 import { ChatQueue } from "./chat-queue";
 
+const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
+vi.mock("sonner", () => ({ toast: { error: toastError } }));
+
 const TEST_RESOURCES = { en: { chat: enChat } };
 
-function renderQueue(headStatus = "running", sendNowDisabled = false, action?: "compact") {
+function renderQueue(
+  headStatus = "running",
+  sendNowDisabled = false,
+  action?: "compact",
+  { steerable = true, receipt = {} }: {
+    steerable?: boolean;
+    receipt?: Pick<ChatQueuedTask, "supplement_status" | "supplement_failure_reason">;
+  } = {},
+) {
   const callbacks = {
     onSendNow: vi.fn<(taskId: string) => Promise<void>>().mockResolvedValue(),
     onEdit: vi.fn<(taskId: string) => Promise<void>>().mockResolvedValue(),
     onRemove: vi.fn<(taskId: string) => Promise<void>>().mockResolvedValue(),
     onClear: vi.fn<() => Promise<void>>().mockResolvedValue(),
   };
-  const view = render(
+  const ui = (tasks: ChatQueuedTask[]) => (
     <I18nProvider locale="en" resources={TEST_RESOURCES}>
       <ChatQueue
         headStatus={headStatus}
         sendNowDisabled={sendNowDisabled}
-        tasks={[
-          {
-            task_id: "task-2",
-            status: "queued",
-            content: "First follow-up",
-            action,
-            created_at: "2026-07-01T00:01:00Z",
-          },
-          {
-            task_id: "task-3",
-            status: "queued",
-            content: "",
-            created_at: "2026-07-01T00:02:00Z",
-          },
-        ]}
+        steerable={steerable}
+        tasks={tasks}
         {...callbacks}
       />
-    </I18nProvider>,
+    </I18nProvider>
   );
-  return { ...callbacks, container: view.container };
+  const tasks = (first: Partial<ChatQueuedTask> = receipt): ChatQueuedTask[] => [
+    {
+      task_id: "task-2",
+      status: "queued",
+      content: "First follow-up",
+      action,
+      ...first,
+      created_at: "2026-07-01T00:01:00Z",
+    },
+    {
+      task_id: "task-3",
+      status: "queued",
+      content: "",
+      created_at: "2026-07-01T00:02:00Z",
+    },
+  ];
+  const view = render(ui(tasks()));
+  return {
+    ...callbacks,
+    container: view.container,
+    rerenderWith: (first: Partial<ChatQueuedTask>) => view.rerender(ui(tasks(first))),
+  };
 }
 
 describe("ChatQueue", () => {
@@ -163,5 +183,54 @@ describe("ChatQueue send-now gating", () => {
     renderQueue("running", false);
 
     expect(screen.getAllByRole("button", { name: "Steer" })[0]!).not.toBeDisabled();
+  });
+});
+
+describe("ChatQueue steering", () => {
+  it("offers stop-and-send when the running reply cannot take input mid-turn", async () => {
+    const { onSendNow } = renderQueue("running", false, undefined, { steerable: false });
+    expect(screen.queryByRole("button", { name: "Steer" })).not.toBeInTheDocument();
+    const stop = screen.getAllByRole("button", { name: "Stop and send" })[0]!;
+    expect(stop.parentElement).toHaveAttribute("title", enChat.queue.steer_stop_hint);
+    fireEvent.click(stop);
+    await waitFor(() => expect(onSendNow).toHaveBeenCalledWith("task-2"));
+  });
+
+  it("shows a delivering row as steering, blocks editing it again, and still allows removal", async () => {
+    const { onRemove, onEdit } = renderQueue("running", false, undefined, {
+      receipt: { supplement_status: "delivering" },
+    });
+    expect(screen.getByRole("status")).toHaveTextContent("Steering…");
+    expect(screen.getAllByRole("button", { name: "Steer" })).toHaveLength(1);
+    fireEvent.click(screen.getAllByLabelText("More queue actions")[0]!);
+    const edit = await screen.findByRole("menuitem", { name: "Edit queued message" });
+    expect(edit).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(edit);
+    expect(onEdit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getAllByLabelText("Remove queued message")[0]!);
+    await waitFor(() => expect(onRemove).toHaveBeenCalledWith("task-2"));
+  });
+
+  it("announces a delivery that fails on screen once and keeps the row steerable", () => {
+    toastError.mockClear();
+    const view = renderQueue("running", false, undefined, {
+      receipt: { supplement_status: "delivering" },
+    });
+    expect(toastError).not.toHaveBeenCalled();
+    view.rerenderWith({ supplement_status: "failed", supplement_failure_reason: "turn_ended" });
+    view.rerenderWith({ supplement_status: "failed", supplement_failure_reason: "turn_ended" });
+    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(toastError).toHaveBeenCalledWith(
+      "Couldn't steer (the reply already ended). The message stays in the queue.",
+    );
+    expect(screen.getAllByRole("button", { name: "Steer" })).toHaveLength(2);
+  });
+
+  it("does not replay a failure that was already settled when the queue loaded", () => {
+    toastError.mockClear();
+    renderQueue("running", false, undefined, {
+      receipt: { supplement_status: "failed", supplement_failure_reason: "timeout" },
+    });
+    expect(toastError).not.toHaveBeenCalled();
   });
 });
