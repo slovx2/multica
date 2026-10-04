@@ -484,7 +484,7 @@ function QuestionStep({
                 <span
                   aria-hidden="true"
                   className={cn(
-                    "flex size-5 shrink-0 items-center justify-center rounded text-caption tabular-nums",
+                    "flex size-5 shrink-0 items-center justify-center rounded-xs text-caption tabular-nums",
                     selected ? "bg-brand text-brand-foreground" : "bg-muted text-muted-foreground",
                   )}
                 >

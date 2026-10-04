@@ -199,8 +199,10 @@ func TestChatCompactFailurePreservesUsageAndPublishesStatus(t *testing.T) {
 	}
 	report(map[string]any{"usage": map[string]any{"used": 22657, "window": 1000000, "model": "native"}})
 	report(map[string]any{"usage": nil})
-	service := *testHandler.TaskService
+	service := testHandler.TaskService
+	previousBus := service.Bus
 	service.Bus = events.New()
+	t.Cleanup(func() { service.Bus = previousBus })
 	var updates []events.Event
 	service.Bus.Subscribe(protocol.EventChatSessionUpdated, func(e events.Event) { updates = append(updates, e) })
 	if _, err := service.FailTask(ctx, parseUUID(taskID), "No conversation found", "", "", "", "agent_error", false, "", ""); err != nil {
