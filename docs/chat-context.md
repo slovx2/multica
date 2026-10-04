@@ -69,7 +69,10 @@ older provider versions and older daemons retain the stop-and-send action.
 
 The queued task stays in its original position until the provider acknowledges
 injection. Success moves its user message to the running task and retires the
-queued task. Rejection, timeout or turn completion keeps the input queued for
+queued task. Cancelling an empty turn after successful delivery preserves the
+original input, delivered guidance and attachments in the transcript with a
+"Stopped." reply, including on retries; it does not restore an arbitrary single
+message to the composer. Rejection, timeout or turn completion keeps the input queued for
 normal execution. While delivery is pending, editing and duplicate steering are
 rejected; removal remains available. Queued file attachments use the same ID/filename and authenticated CLI download
 instructions as ordinary chat messages.

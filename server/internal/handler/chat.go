@@ -1755,9 +1755,15 @@ func (h *Handler) GetPendingChatTask(w http.ResponseWriter, r *http.Request) {
 
 	head := tasks[0]
 	capability, capErr := h.Queries.GetTaskSupplementCapability(r.Context(), head.ID)
-	steerable := head.Status == "running" && head.Action == "" && capErr == nil && capability.Capability == protocol.DaemonCapabilityTaskSupplementV1
+	steerable := !head.IssueID.Valid && head.Status == "running" && head.Action == "" && capErr == nil && capability.Capability == protocol.DaemonCapabilityTaskSupplementV1
+	queuedIDs := make([]pgtype.UUID, 0, len(tasks)-1)
+	for _, task := range tasks[1:] {
+		if task.Status == "queued" {
+			queuedIDs = append(queuedIDs, task.ID)
+		}
+	}
 	receipts, err := h.Queries.ListChatTaskSupplementsForSession(r.Context(), db.ListChatTaskSupplementsForSessionParams{
-		ChatSessionID: session.ID, WorkspaceID: session.WorkspaceID,
+		ChatSessionID: session.ID, WorkspaceID: session.WorkspaceID, QueuedTaskIds: queuedIDs,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load chat steering status")
@@ -1839,7 +1845,7 @@ func (h *Handler) PrioritizeQueuedChatTask(w http.ResponseWriter, r *http.Reques
 		writeError(w, 409, "stop the linked issue task before replacing the chat reply")
 		return
 	}
-	steering, err := qtx.QueuedChatTaskHasActiveSupplement(r.Context(), taskID)
+	steering, err := qtx.QueuedChatTaskHasActiveSupplement(r.Context(), db.QueuedChatTaskHasActiveSupplementParams{QueuedTaskID: taskID, WorkspaceID: session.WorkspaceID})
 	if err != nil {
 		writeError(w, 500, "failed to check steering status")
 		return

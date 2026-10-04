@@ -6,8 +6,10 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/testutil"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
@@ -137,6 +139,42 @@ func TestChatSteerRejectsUnnegotiatedEndedAndMalformed(t *testing.T) {
 	steerRequest(t, f, uuid.NewString()).Want(409)
 	if n := dbfx.Count(t, `SELECT count(*) FROM chat_message WHERE id=$1 AND task_id=$2`, f.message, f.queued); n != 1 {
 		t.Fatal("failed steer lost original input")
+	}
+}
+
+func TestChatSteerLinkedIssueHeadIsNotSteerable(t *testing.T) {
+	f := newChatSteerFixture(t, true)
+	issue := dbfx.Issue(t, "linked planning task")
+	dbfx.Exec(t, "UPDATE agent_task_queue SET issue_id=$2 WHERE id=$1", f.head, issue)
+	if chatSteerPending(t, f).Steerable {
+		t.Fatal("linked issue head advertised an unsupported steer action")
+	}
+	steerRequest(t, f, uuid.NewString()).Want(409)
+}
+
+func TestChatSteerReceiptQueriesRespectQueueAndWorkspace(t *testing.T) {
+	f := newChatSteerFixture(t, true)
+	steerRequest(t, f, uuid.NewString()).Want(202)
+	q := testHandler.Queries
+	params := db.QueuedChatTaskHasActiveSupplementParams{QueuedTaskID: parseUUID(f.queued), WorkspaceID: parseUUID(testWorkspaceID)}
+	active, err := q.QueuedChatTaskHasActiveSupplement(t.Context(), params)
+	if err != nil || !active {
+		t.Fatalf("own receipt: active=%v err=%v", active, err)
+	}
+	params.WorkspaceID = parseUUID(uuid.NewString())
+	active, err = q.QueuedChatTaskHasActiveSupplement(t.Context(), params)
+	if err != nil || active {
+		t.Fatalf("foreign receipt: active=%v err=%v", active, err)
+	}
+	list := db.ListChatTaskSupplementsForSessionParams{ChatSessionID: parseUUID(f.session), WorkspaceID: parseUUID(testWorkspaceID), QueuedTaskIds: []pgtype.UUID{parseUUID(f.queued)}}
+	rows, err := q.ListChatTaskSupplementsForSession(t.Context(), list)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("current queue: rows=%d err=%v", len(rows), err)
+	}
+	list.QueuedTaskIds = []pgtype.UUID{parseUUID(uuid.NewString())}
+	rows, err = q.ListChatTaskSupplementsForSession(t.Context(), list)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("historical receipt leaked into current queue: rows=%d err=%v", len(rows), err)
 	}
 }
 

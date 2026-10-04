@@ -914,21 +914,23 @@ ORDER BY message.created_at ASC, message.id ASC;
 -- Delivered guidance keeps its actual receiving task_id for the UI, but must
 -- also survive a retry that starts a fresh native session. Undelivered queued
 -- input and messages belonging to another input batch must never be absorbed.
-SELECT message.* FROM chat_message AS message
-WHERE message.role = 'user'
-  AND (
-      message.task_id = $1
-      OR EXISTS (
-          SELECT 1 FROM chat_task_supplement supplement
-          JOIN agent_task_queue receiving ON receiving.id = supplement.task_id
-          WHERE supplement.chat_message_id = message.id
-            AND supplement.status = 'delivered'
-            AND receiving.chat_input_task_id = $1
-            AND receiving.chat_session_id = message.chat_session_id
-            AND supplement.chat_session_id = message.chat_session_id
-      )
-  )
-ORDER BY message.created_at ASC, message.id ASC;
+SELECT input.* FROM (
+    SELECT message.* FROM chat_message AS message
+    WHERE message.task_id = $1 AND message.role = 'user'
+    UNION ALL
+    SELECT message.*
+    FROM agent_task_queue receiving
+    JOIN chat_task_supplement supplement ON supplement.task_id = receiving.id
+    JOIN chat_message message ON message.id = supplement.chat_message_id
+    WHERE receiving.chat_input_task_id = $1
+      AND receiving.id <> $1
+      AND supplement.status = 'delivered'
+      AND message.role = 'user'
+      AND message.task_id = receiving.id
+      AND receiving.chat_session_id = message.chat_session_id
+      AND supplement.chat_session_id = message.chat_session_id
+) AS input
+ORDER BY input.created_at ASC, input.id ASC;
 
 -- name: ListChatMessagesPageForChannelContext :many
 -- Agent-only transcript projection. UI readers continue using the unfiltered
@@ -1385,6 +1387,7 @@ LIMIT 1;
 -- only need an existence check.
 SELECT
     task.id,
+    task.issue_id,
     COALESCE(task.context->>'chat_action', '')::text AS action,
     task.status,
     task.created_at,

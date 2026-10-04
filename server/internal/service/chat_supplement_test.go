@@ -122,10 +122,7 @@ func TestChatSupplementQueueSettlement(t *testing.T) {
 			if err != nil || replay.TaskID != uuid(active) {
 				t.Fatalf("request replay after settlement = %+v, %v", replay, err)
 			}
-			receipt, err := q.GetChatTaskSupplementForQueuedTask(t.Context(), uuid(queued))
-			if err != nil {
-				t.Fatal(err)
-			}
+			receipt := replay
 			wantStatus, wantTask, wantQueue := "failed", queued, "queued"
 			if mode == "delivered" || mode == "late_delivery" {
 				wantStatus, wantTask, wantQueue = "delivered", active, "cancelled"

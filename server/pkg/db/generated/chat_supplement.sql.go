@@ -134,6 +134,33 @@ func (q *Queries) AckChatTaskSupplementFailed(ctx context.Context, arg AckChatTa
 	return i, err
 }
 
+const chatInputHasDeliveredSupplement = `-- name: ChatInputHasDeliveredSupplement :one
+SELECT EXISTS (
+    SELECT 1 FROM agent_task_queue receiving
+    JOIN chat_task_supplement supplement ON supplement.task_id = receiving.id
+    JOIN chat_session session ON session.id = supplement.chat_session_id
+      AND session.workspace_id = supplement.workspace_id
+    WHERE (receiving.id = $1 OR receiving.chat_input_task_id = $1)
+      AND receiving.chat_session_id = $2
+      AND supplement.chat_session_id = $2
+      AND supplement.status = 'delivered'
+) AS delivered
+`
+
+type ChatInputHasDeliveredSupplementParams struct {
+	InputOwnerID  pgtype.UUID `json:"input_owner_id"`
+	ChatSessionID pgtype.UUID `json:"chat_session_id"`
+}
+
+// Delivered guidance makes this a multi-message conversation, even before the
+// provider emits output. Preserve the batch when cancelling any of its retries.
+func (q *Queries) ChatInputHasDeliveredSupplement(ctx context.Context, arg ChatInputHasDeliveredSupplementParams) (bool, error) {
+	row := q.db.QueryRow(ctx, chatInputHasDeliveredSupplement, arg.InputOwnerID, arg.ChatSessionID)
+	var delivered bool
+	err := row.Scan(&delivered)
+	return delivered, err
+}
+
 const claimNextChatTaskSupplement = `-- name: ClaimNextChatTaskSupplement :one
 WITH next AS MATERIALIZED (
     SELECT s.chat_message_id, s.task_id
@@ -318,46 +345,21 @@ func (q *Queries) GetChatTaskSupplementByRequest(ctx context.Context, arg GetCha
 	return i, err
 }
 
-const getChatTaskSupplementForQueuedTask = `-- name: GetChatTaskSupplementForQueuedTask :one
-SELECT task_id, queued_task_id, chat_message_id, chat_session_id, workspace_id, author_id, client_request_id, status, failure_reason, attempt_count, created_at, updated_at, delivered_at FROM chat_task_supplement
-WHERE queued_task_id = $1
-ORDER BY created_at DESC LIMIT 1
-`
-
-func (q *Queries) GetChatTaskSupplementForQueuedTask(ctx context.Context, queuedTaskID pgtype.UUID) (ChatTaskSupplement, error) {
-	row := q.db.QueryRow(ctx, getChatTaskSupplementForQueuedTask, queuedTaskID)
-	var i ChatTaskSupplement
-	err := row.Scan(
-		&i.TaskID,
-		&i.QueuedTaskID,
-		&i.ChatMessageID,
-		&i.ChatSessionID,
-		&i.WorkspaceID,
-		&i.AuthorID,
-		&i.ClientRequestID,
-		&i.Status,
-		&i.FailureReason,
-		&i.AttemptCount,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeliveredAt,
-	)
-	return i, err
-}
-
 const listChatTaskSupplementsForSession = `-- name: ListChatTaskSupplementsForSession :many
-SELECT task_id, queued_task_id, chat_message_id, chat_session_id, workspace_id, author_id, client_request_id, status, failure_reason, attempt_count, created_at, updated_at, delivered_at FROM chat_task_supplement
+SELECT DISTINCT ON (queued_task_id) task_id, queued_task_id, chat_message_id, chat_session_id, workspace_id, author_id, client_request_id, status, failure_reason, attempt_count, created_at, updated_at, delivered_at FROM chat_task_supplement
 WHERE chat_session_id = $1 AND workspace_id = $2
-ORDER BY created_at, chat_message_id
+  AND queued_task_id = ANY($3::uuid[])
+ORDER BY queued_task_id, created_at DESC, chat_message_id
 `
 
 type ListChatTaskSupplementsForSessionParams struct {
-	ChatSessionID pgtype.UUID `json:"chat_session_id"`
-	WorkspaceID   pgtype.UUID `json:"workspace_id"`
+	ChatSessionID pgtype.UUID   `json:"chat_session_id"`
+	WorkspaceID   pgtype.UUID   `json:"workspace_id"`
+	QueuedTaskIds []pgtype.UUID `json:"queued_task_ids"`
 }
 
 func (q *Queries) ListChatTaskSupplementsForSession(ctx context.Context, arg ListChatTaskSupplementsForSessionParams) ([]ChatTaskSupplement, error) {
-	rows, err := q.db.Query(ctx, listChatTaskSupplementsForSession, arg.ChatSessionID, arg.WorkspaceID)
+	rows, err := q.db.Query(ctx, listChatTaskSupplementsForSession, arg.ChatSessionID, arg.WorkspaceID, arg.QueuedTaskIds)
 	if err != nil {
 		return nil, err
 	}
@@ -393,12 +395,18 @@ func (q *Queries) ListChatTaskSupplementsForSession(ctx context.Context, arg Lis
 const queuedChatTaskHasActiveSupplement = `-- name: QueuedChatTaskHasActiveSupplement :one
 SELECT EXISTS (
     SELECT 1 FROM chat_task_supplement
-    WHERE queued_task_id = $1 AND status IN ('pending', 'delivering')
+    WHERE queued_task_id = $1 AND workspace_id = $2
+      AND status IN ('pending', 'delivering')
 ) AS active
 `
 
-func (q *Queries) QueuedChatTaskHasActiveSupplement(ctx context.Context, queuedTaskID pgtype.UUID) (bool, error) {
-	row := q.db.QueryRow(ctx, queuedChatTaskHasActiveSupplement, queuedTaskID)
+type QueuedChatTaskHasActiveSupplementParams struct {
+	QueuedTaskID pgtype.UUID `json:"queued_task_id"`
+	WorkspaceID  pgtype.UUID `json:"workspace_id"`
+}
+
+func (q *Queries) QueuedChatTaskHasActiveSupplement(ctx context.Context, arg QueuedChatTaskHasActiveSupplementParams) (bool, error) {
+	row := q.db.QueryRow(ctx, queuedChatTaskHasActiveSupplement, arg.QueuedTaskID, arg.WorkspaceID)
 	var active bool
 	err := row.Scan(&active)
 	return active, err

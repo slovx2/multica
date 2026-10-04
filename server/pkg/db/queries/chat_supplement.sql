@@ -48,21 +48,18 @@ SELECT * FROM chat_task_supplement
 WHERE chat_session_id = @chat_session_id AND workspace_id = @workspace_id
   AND author_id = @author_id AND client_request_id = @client_request_id;
 
--- name: GetChatTaskSupplementForQueuedTask :one
-SELECT * FROM chat_task_supplement
-WHERE queued_task_id = @queued_task_id
-ORDER BY created_at DESC LIMIT 1;
-
 -- name: QueuedChatTaskHasActiveSupplement :one
 SELECT EXISTS (
     SELECT 1 FROM chat_task_supplement
-    WHERE queued_task_id = @queued_task_id AND status IN ('pending', 'delivering')
+    WHERE queued_task_id = @queued_task_id AND workspace_id = @workspace_id
+      AND status IN ('pending', 'delivering')
 ) AS active;
 
 -- name: ListChatTaskSupplementsForSession :many
-SELECT * FROM chat_task_supplement
+SELECT DISTINCT ON (queued_task_id) * FROM chat_task_supplement
 WHERE chat_session_id = @chat_session_id AND workspace_id = @workspace_id
-ORDER BY created_at, chat_message_id;
+  AND queued_task_id = ANY(@queued_task_ids::uuid[])
+ORDER BY queued_task_id, created_at DESC, chat_message_id;
 
 -- name: ClaimNextChatTaskSupplement :one
 WITH next AS MATERIALIZED (
@@ -163,3 +160,17 @@ WITH sessions AS MATERIALIZED (
 )
 DELETE FROM task_supplement_capability
 WHERE task_id IN (SELECT id FROM agent_task_queue WHERE chat_session_id IN (SELECT id FROM sessions));
+
+-- name: ChatInputHasDeliveredSupplement :one
+-- Delivered guidance makes this a multi-message conversation, even before the
+-- provider emits output. Preserve the batch when cancelling any of its retries.
+SELECT EXISTS (
+    SELECT 1 FROM agent_task_queue receiving
+    JOIN chat_task_supplement supplement ON supplement.task_id = receiving.id
+    JOIN chat_session session ON session.id = supplement.chat_session_id
+      AND session.workspace_id = supplement.workspace_id
+    WHERE (receiving.id = @input_owner_id OR receiving.chat_input_task_id = @input_owner_id)
+      AND receiving.chat_session_id = @chat_session_id
+      AND supplement.chat_session_id = @chat_session_id
+      AND supplement.status = 'delivered'
+) AS delivered;
