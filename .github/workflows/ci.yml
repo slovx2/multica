@@ -912,6 +912,9 @@ jobs:
       - name: Test build output naming
         run: bash scripts/makefile-build.test.sh
 
+      - name: Test fork release metadata
+        run: bash scripts/fork-release-meta.test.sh
+
   frontend-quality:
     needs: changes
     if: ${{ needs.changes.outputs.quality_only == 'true' }}
