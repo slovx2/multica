@@ -386,3 +386,42 @@ func TestPlanningHistoricalCreatedIssues(t *testing.T) {
 		t.Fatalf("cross-workspace issue list: %+v %v", rows, err)
 	}
 }
+
+func TestPlanningQuestionSkipAndDismissPersist(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		decision planning.Decision
+		status   string
+		text     string
+	}{
+		{"skip question", planning.Decision{Action: "answer", Answers: []planning.Answer{{QuestionID: "q0", Skipped: true}}}, "answered", "（跳过，请自行判断）"},
+		{"dismiss all", planning.Decision{Action: "dismiss"}, "dismissed", "用户跳过了这些问题，请按你的判断继续"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, sessionID, taskID, daemonID := planningFixtureRows(t, "claude")
+			card, err := planning.Questions(planning.Source{Provider: "claude", ConversationID: "native-session", ItemID: "questions"}, json.RawMessage(`{"questions":[{"question":"Which library?","options":[{"label":"A"},{"label":"B"}]}]}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			saved := postPlanningCard(t, taskID, daemonID, card)
+			dbfx.Exec(t, "UPDATE agent_task_queue SET status='completed' WHERE id=$1", taskID)
+			dbfx.Cleanup(t, "DELETE FROM agent_task_queue WHERE chat_session_id=$1", sessionID)
+			dbfx.Cleanup(t, "DELETE FROM chat_message WHERE chat_session_id=$1", sessionID)
+			tc.decision.CardID = uuidToString(saved.ID)
+			request := func() *http.Request {
+				return withChatTestWorkspaceCtx(t, withURLParam(newRequest("POST", "/messages", map[string]any{"card_decision": tc.decision}), "sessionId", sessionID))
+			}
+			var out SendChatMessageResponse
+			testutil.Call(t, testHandler.SendChatMessage, request()).Want(http.StatusCreated).JSON(&out)
+			var status, content string
+			var mode bool
+			dbfx.QueryRow(t, "SELECT status FROM chat_card WHERE id=$1", tc.decision.CardID).Scan(&status)
+			dbfx.QueryRow(t, "SELECT content FROM chat_message WHERE task_id=$1", out.TaskID).Scan(&content)
+			dbfx.QueryRow(t, "SELECT plan_mode FROM chat_session WHERE id=$1", sessionID).Scan(&mode)
+			if status != tc.status || !strings.Contains(content, tc.text) || !mode {
+				t.Fatalf("status=%s content=%s plan_mode=%v", status, content, mode)
+			}
+			testutil.Call(t, testHandler.SendChatMessage, request()).Want(http.StatusConflict)
+		})
+	}
+}

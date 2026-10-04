@@ -472,7 +472,13 @@ FOR UPDATE;
 -- so the daemon does not keep running work whose result has nowhere to
 -- land. workspace_id in the WHERE clause is a SQL-layer tenant guard; see
 -- DeleteIssue.
-DELETE FROM chat_session WHERE id = $1 AND workspace_id = $2;
+WITH receipts AS (
+    DELETE FROM chat_task_supplement WHERE chat_session_id = $1 AND workspace_id = $2
+), capabilities AS (
+    DELETE FROM task_supplement_capability WHERE workspace_id = $2
+      AND task_id IN (SELECT task.id FROM agent_task_queue task WHERE task.chat_session_id = $1)
+)
+DELETE FROM chat_session cs WHERE cs.id = $1 AND cs.workspace_id = $2;
 
 -- name: TouchChatSession :exec
 UPDATE chat_session SET updated_at = now()
@@ -903,16 +909,26 @@ WHERE message.chat_session_id = $1
 ORDER BY message.created_at ASC, message.id ASC;
 
 -- name: ListChatInputMessages :many
--- Loads the immutable user-message input batch owned by a direct-chat task.
--- The caller passes the task's chat_input_task_id (itself for an original send,
--- the root task for an auto-retry child), so a claim reads exactly the messages
--- the user sent for this turn — and never absorbs a message that arrived after
--- the batch was sealed, no matter what the assistant wrote or when. Only used
--- for new task-owned direct-chat tasks; legacy/channel (chat_input_task_id
--- NULL) tasks keep using ListChatMessagesForLegacyTask + trailingUserMessages.
-SELECT * FROM chat_message
-WHERE task_id = $1 AND role = 'user'
-ORDER BY created_at ASC, id ASC;
+-- Loads the sealed input batch plus guidance delivered to one of its retries.
+-- The caller passes chat_input_task_id (the original task for every retry).
+-- Delivered guidance keeps its actual receiving task_id for the UI, but must
+-- also survive a retry that starts a fresh native session. Undelivered queued
+-- input and messages belonging to another input batch must never be absorbed.
+SELECT message.* FROM chat_message AS message
+WHERE message.role = 'user'
+  AND (
+      message.task_id = $1
+      OR EXISTS (
+          SELECT 1 FROM chat_task_supplement supplement
+          JOIN agent_task_queue receiving ON receiving.id = supplement.task_id
+          WHERE supplement.chat_message_id = message.id
+            AND supplement.status = 'delivered'
+            AND receiving.chat_input_task_id = $1
+            AND receiving.chat_session_id = message.chat_session_id
+            AND supplement.chat_session_id = message.chat_session_id
+      )
+  )
+ORDER BY message.created_at ASC, message.id ASC;
 
 -- name: ListChatMessagesPageForChannelContext :many
 -- Agent-only transcript projection. UI readers continue using the unfiltered

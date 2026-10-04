@@ -1,6 +1,9 @@
 package agent
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // ContextUsage describes the most recent native request, never cumulative billing.
 type ContextUsage struct {
@@ -18,9 +21,10 @@ type Compaction struct {
 const MessageCompaction MessageType = "compaction"
 
 type claudeContextTracker struct {
-	model  string
-	used   *int64
-	window int64
+	model            string
+	initializedModel bool
+	used             *int64
+	window           int64
 }
 
 func (c *claudeContextTracker) observe(msg claudeSDKMessage) *Compaction {
@@ -29,6 +33,7 @@ func (c *claudeContextTracker) observe(msg claudeSDKMessage) *Compaction {
 	}
 	if msg.Type == "system" && msg.Subtype == "init" && msg.Model != "" {
 		c.model = msg.Model
+		c.initializedModel = true
 	}
 	if msg.Type == "assistant" {
 		var body claudeMessageContent
@@ -40,11 +45,15 @@ func (c *claudeContextTracker) observe(msg claudeSDKMessage) *Compaction {
 		_ = json.Unmarshal(msg.Message, &native)
 		if json.Unmarshal(msg.Message, &body) == nil && body.Usage != nil && native.Usage.Input != nil && body.Usage.InputTokens >= 0 && body.Usage.CacheReadInputTokens >= 0 && body.Usage.CacheCreationInputTokens >= 0 {
 			n := body.Usage.InputTokens + body.Usage.CacheReadInputTokens + body.Usage.CacheCreationInputTokens
-			c.model, c.used = body.Model, &n
+			c.used = &n
+			// Init retains native context suffixes omitted from assistant messages.
+			if !c.initializedModel && body.Model != "" {
+				c.model = body.Model
+			}
 		}
 	}
 	if msg.Type == "result" {
-		if window := msg.ModelUsage[c.model].ContextWindow; window > 0 {
+		if window := claudeModelContextWindow(msg.ModelUsage, c.model); window > 0 {
 			c.window = window
 		}
 		// Manual compaction may have no assistant event; accept only an unambiguous native window.
@@ -65,6 +74,37 @@ func (c *claudeContextTracker) observe(msg claudeSDKMessage) *Compaction {
 	}
 	return nil
 }
+
+// Prefer the exact native model key. Alias matches must identify a single
+// window: guessing among different windows can misrepresent context capacity.
+func claudeModelContextWindow(models map[string]claudeResultModelUsage, model string) int64 {
+	if window := models[model].ContextWindow; window > 0 {
+		return window
+	}
+	if model == "" {
+		return 0
+	}
+	canonical := claudeModelWithoutSuffix(model)
+	var window int64
+	for key, usage := range models {
+		if usage.ContextWindow <= 0 || (usage.CanonicalModel != canonical && claudeModelWithoutSuffix(key) != canonical) {
+			continue
+		}
+		if window != 0 && window != usage.ContextWindow {
+			return 0
+		}
+		window = usage.ContextWindow
+	}
+	return window
+}
+
+func claudeModelWithoutSuffix(model string) string {
+	if i := strings.LastIndex(model, "["); i >= 0 && strings.HasSuffix(model, "]") {
+		return model[:i]
+	}
+	return model
+}
+
 func (c *claudeContextTracker) usage() *ContextUsage {
 	if c.used == nil || *c.used < 0 || c.window <= 0 {
 		return nil

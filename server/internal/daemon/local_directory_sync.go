@@ -137,7 +137,7 @@ func (d *Daemon) handleDirectorySync(ctx context.Context, runtimeID string, req 
 		if path, err := normalizeLocalPath(ref.LocalPath); err == nil && validateLocalPath(path) == nil {
 			real, _ := resolveRealPath(path)
 			release := d.localPathLocks.TryAcquire(real, "sync:"+req.ID)
-			result = syncLocalDirectory(ctx, path, "fetch_ff", release != nil)
+			result = syncLocalDirectory(ctx, path, "fetch_ff", req.Force || release != nil)
 			if release != nil {
 				release()
 			}

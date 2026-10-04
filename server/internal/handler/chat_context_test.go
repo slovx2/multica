@@ -98,23 +98,27 @@ func TestChatCompactQueuesClaimsWithoutInputAndSuppressesReply(t *testing.T) {
 	}
 }
 
-func TestChatDirectorySyncHeartbeatFlow(t *testing.T) {
+func TestProjectDirectorySyncHeartbeatFlow(t *testing.T) {
 	ctx := context.Background()
-	agentID, sessionID, _, daemonID := planningFixtureRows(t, "claude")
+	daemonID := "directory-sync-daemon"
+	runtimeID := dbfx.Runtime(t, "Directory sync", testutil.Cols{"provider": "claude", "daemon_id": daemonID, "runtime_mode": "local"})
+	agentID := dbfx.Agent(t, "Sync agent", runtimeID)
 	carrier, _ := testHandler.Queries.GetAgent(ctx, parseUUID(agentID))
 	projectID := dbfx.Project(t, "Directory sync")
-	dbfx.Exec(t, "UPDATE chat_session SET project_id=$2 WHERE id=$1", sessionID, projectID)
 	dbfx.Exec(t, `UPDATE agent_runtime SET metadata='{"capabilities":["chat-context-v1"]}' WHERE id=$1`, uuidToString(carrier.RuntimeID))
 	dbfx.Insert(t, "project_resource", testutil.Cols{"project_id": projectID, "workspace_id": testWorkspaceID, "resource_type": "local_directory", "resource_ref": json.RawMessage(`{"local_path":"/fixture/repo","daemon_id":"` + daemonID + `"}`), "created_by": testUserID})
-	req := withChatTestWorkspaceCtx(t, withURLParam(newRequest("POST", "/sync", nil), "sessionId", sessionID))
+	req := withChatTestWorkspaceCtx(t, withURLParam(newRequest("POST", "/sync", map[string]any{"agent_id": agentID, "force": true}), "id", projectID))
 	var request struct {
 		ID string `json:"id"`
 	}
-	testutil.Call(t, testHandler.InitiateChatDirectorySync, req).Want(202).JSON(&request)
+	testutil.Call(t, testHandler.InitiateProjectDirectorySync, req).Want(202).JSON(&request)
 	dbfx.Cleanup(t, "DELETE FROM chat_directory_sync WHERE id=$1", request.ID)
 	ack, _, err := testHandler.processHeartbeat(ctx, uuidToString(carrier.RuntimeID), false)
 	if err != nil || len(ack.PendingDirectorySync) != 1 {
 		t.Fatalf("heartbeat %+v %v", ack, err)
+	}
+	if !ack.PendingDirectorySync[0].Force {
+		t.Fatal("heartbeat lost force confirmation")
 	}
 	ack, _, err = testHandler.processHeartbeat(ctx, uuidToString(carrier.RuntimeID), false)
 	if err != nil || len(ack.PendingDirectorySync) != 0 {
@@ -122,10 +126,22 @@ func TestChatDirectorySyncHeartbeatFlow(t *testing.T) {
 	}
 	report := withURLParam(newDaemonTokenRequest("POST", "/sync", map[string]any{"id": request.ID, "result": map[string]any{"status": "updated", "updated": 3, "ahead": 0, "behind": 0}}, testWorkspaceID, daemonID), "runtimeId", uuidToString(carrier.RuntimeID))
 	testutil.Call(t, testHandler.ReportChatDirectorySync, report).Want(200)
-	get := withChatTestWorkspaceCtx(t, withURLParams(newRequest("GET", "/sync", nil), "sessionId", sessionID, "syncId", request.ID))
+	get := withChatTestWorkspaceCtx(t, withURLParams(newRequest("GET", "/sync", nil), "id", projectID, "syncId", request.ID))
 	var result map[string]any
-	testutil.Call(t, testHandler.GetChatDirectorySync, get).Want(200).JSON(&result)
+	testutil.Call(t, testHandler.GetProjectDirectorySync, get).Want(200).JSON(&result)
 	assertChatContextContract(t, "sync", result, "id")
+	// Result visibility is scoped to both project and the initiating member.
+	otherProject := dbfx.Project(t, "Other sync project")
+	wrongProject := withChatTestWorkspaceCtx(t, withURLParams(newRequest("GET", "/sync", nil), "id", otherProject, "syncId", request.ID))
+	testutil.Call(t, testHandler.GetProjectDirectorySync, wrongProject).Want(404)
+	dbfx.Exec(t, "UPDATE chat_directory_sync SET requester_id=$2 WHERE id=$1", request.ID, projectID)
+	testutil.Call(t, testHandler.GetProjectDirectorySync, get).Want(404)
+	dbfx.Exec(t, "UPDATE chat_directory_sync SET requester_id=$2 WHERE id=$1", request.ID, testUserID)
+	remove := withChatTestWorkspaceCtx(t, withURLParam(newRequest("DELETE", "/project", nil), "id", projectID))
+	testutil.Call(t, testHandler.DeleteProject, remove).Want(204)
+	if dbfx.Count(t, "SELECT count(*) FROM chat_directory_sync WHERE id=$1", request.ID) != 0 {
+		t.Fatal("project deletion left a sync request")
+	}
 }
 
 func TestChatCompactHTTPResponseContract(t *testing.T) {
@@ -266,4 +282,124 @@ func TestChatDirectorySyncMigrationCascadesAndRollback(t *testing.T) {
 			t.Fatalf("%s left %d sync records: %v", parent, count, err)
 		}
 	}
+}
+
+func TestProjectDirectorySyncAccess(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		want int
+	}{
+		{"foreign project", 404},
+		{"foreign agent", 404},
+		{"foreign runtime", 404},
+		{"private agent", 403},
+		{"private runtime", 404},
+		{"old daemon", 409},
+		{"other daemon directory", 409},
+		{"missing runtime", 409},
+		{"invalid agent", 400},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			projectID := dbfx.Project(t, "Sync access")
+			runtimeID := dbfx.Runtime(t, "Sync access", testutil.Cols{"daemon_id": "sync-access-daemon", "metadata": json.RawMessage(`{"capabilities":["chat-context-v1"]}`)})
+			agentID := dbfx.Agent(t, "Sync access", runtimeID)
+			refDaemon := "sync-access-daemon"
+			switch tc.name {
+			case "foreign project", "foreign agent", "foreign runtime":
+				workspaceID := dbfx.Workspace(t, "Other sync workspace", "sync-workspace-"+projectID)
+				if tc.name == "foreign project" {
+					dbfx.Exec(t, "UPDATE project SET workspace_id=$2 WHERE id=$1", projectID, workspaceID)
+				} else if tc.name == "foreign agent" {
+					dbfx.Exec(t, "UPDATE agent SET workspace_id=$2 WHERE id=$1", agentID, workspaceID)
+				} else {
+					dbfx.Member(t, workspaceID, testUserID, "member")
+					dbfx.Exec(t, "UPDATE agent_runtime SET workspace_id=$2 WHERE id=$1", runtimeID, workspaceID)
+				}
+			case "private agent", "private runtime":
+				otherUser := dbfx.User(t, "Other sync owner", projectID+"@sync.example")
+				if tc.name == "private agent" {
+					dbfx.Exec(t, "UPDATE agent SET owner_id=$2 WHERE id=$1", agentID, otherUser)
+				} else {
+					dbfx.Exec(t, "UPDATE agent_runtime SET owner_id=$2 WHERE id=$1", runtimeID, otherUser)
+				}
+			case "old daemon":
+				dbfx.Exec(t, "UPDATE agent_runtime SET metadata='{}' WHERE id=$1", runtimeID)
+			case "other daemon directory":
+				refDaemon = "different-machine"
+			case "missing runtime":
+				dbfx.Exec(t, "UPDATE agent SET runtime_id=NULL WHERE id=$1", agentID)
+			case "invalid agent":
+				agentID = "invalid"
+			}
+			ref, _ := json.Marshal(map[string]string{"local_path": "/fixture/repo", "daemon_id": refDaemon})
+			dbfx.Insert(t, "project_resource", testutil.Cols{"project_id": projectID, "workspace_id": testWorkspaceID, "resource_type": "local_directory", "resource_ref": json.RawMessage(ref), "created_by": testUserID})
+			req := withChatTestWorkspaceCtx(t, withURLParam(newRequest("POST", "/sync", map[string]any{"agent_id": agentID, "force": true}), "id", projectID))
+			testutil.Call(t, testHandler.InitiateProjectDirectorySync, req).Want(tc.want)
+			if dbfx.Count(t, "SELECT count(*) FROM chat_directory_sync WHERE project_id=$1", projectID) != 0 {
+				t.Fatal("rejected request reached daemon queue")
+			}
+		})
+	}
+}
+
+func TestProjectDirectorySyncMigrationAndRollback(t *testing.T) {
+	ctx := context.Background()
+	tx, err := testPool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	// The legacy queue is isolated on this connection, including its parents.
+	for _, ddl := range []string{
+		"CREATE TEMP TABLE chat_session (id uuid PRIMARY KEY, project_id uuid, creator_id uuid NOT NULL) ON COMMIT DROP",
+		"CREATE TEMP TABLE workspace (id uuid PRIMARY KEY) ON COMMIT DROP",
+		"CREATE TEMP TABLE agent_runtime (id uuid PRIMARY KEY) ON COMMIT DROP",
+		"SET LOCAL search_path = pg_temp, public",
+	} {
+		if _, err := tx.Exec(ctx, ddl); err != nil {
+			t.Fatal(err)
+		}
+	}
+	apply := func(name string) {
+		t.Helper()
+		ddl, err := os.ReadFile("../../migrations/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(ctx, string(ddl)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	apply("571_chat_directory_sync.up.sql")
+	for _, query := range []string{
+		"INSERT INTO chat_session VALUES ($1, $1, $1)",
+		"INSERT INTO workspace VALUES ($1)",
+		"INSERT INTO agent_runtime VALUES ($1)",
+		"INSERT INTO chat_directory_sync (id,chat_session_id,workspace_id,runtime_id,resource_ref) VALUES ($1,$1,$1,$1,'{}')",
+	} {
+		if _, err := tx.Exec(ctx, query, testUserID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	apply("573_project_directory_sync.up.sql")
+	var projectID, requesterID string
+	var force bool
+	if err := tx.QueryRow(ctx, "SELECT project_id, requester_id, force FROM chat_directory_sync").Scan(&projectID, &requesterID, &force); err != nil {
+		t.Fatal(err)
+	}
+	if projectID != testUserID || requesterID != testUserID || force {
+		t.Fatalf("unexpected migrated request: %s %s %v", projectID, requesterID, force)
+	}
+	if _, err := tx.Exec(ctx, "DELETE FROM chat_session"); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := tx.QueryRow(ctx, "SELECT count(*) FROM chat_directory_sync").Scan(&count); err != nil || count != 1 {
+		t.Fatalf("project request still tied to session: count=%d err=%v", count, err)
+	}
+	apply("573_project_directory_sync.down.sql")
+	if err := tx.QueryRow(ctx, "SELECT count(chat_session_id) FROM chat_directory_sync").Scan(&count); err != nil || count != 0 {
+		t.Fatalf("rollback: count=%d err=%v", count, err)
+	}
+	apply("573_project_directory_sync.up.sql")
 }

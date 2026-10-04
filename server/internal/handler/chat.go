@@ -843,10 +843,6 @@ func (h *Handler) DeleteChatSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "failed to delete planning data")
 		return
 	}
-	if err := qtx.DeleteChatDirectorySync(r.Context(), db.DeleteChatDirectorySyncParams{ChatSessionID: session.ID, WorkspaceID: session.WorkspaceID}); err != nil {
-		writeError(w, 500, "failed to delete chat sync requests")
-		return
-	}
 	if err := qtx.DeleteChatSession(r.Context(), db.DeleteChatSessionParams{
 		ID:          session.ID,
 		WorkspaceID: session.WorkspaceID,
@@ -1403,6 +1399,7 @@ func (h *Handler) ListChatMessagesPage(w http.ResponseWriter, r *http.Request) {
 // optimistic seeds don't have a real task created_at and the timer needs to
 // survive refresh / reopen.
 type PendingChatTaskResponse struct {
+	Steerable bool   `json:"steerable"`
 	TaskID    string `json:"task_id,omitempty"`
 	Status    string `json:"status,omitempty"`
 	CreatedAt string `json:"created_at,omitempty"`
@@ -1429,11 +1426,13 @@ func waitReasonForStatus(status string, reason pgtype.Text) string {
 }
 
 type QueuedChatTaskResponse struct {
-	TaskID    string `json:"task_id"`
-	Status    string `json:"status"`
-	CreatedAt string `json:"created_at"`
-	MessageID string `json:"message_id,omitempty"`
-	Content   string `json:"content,omitempty"`
+	SupplementStatus        string `json:"supplement_status,omitempty"`
+	SupplementFailureReason string `json:"supplement_failure_reason,omitempty"`
+	TaskID                  string `json:"task_id"`
+	Status                  string `json:"status"`
+	CreatedAt               string `json:"created_at"`
+	MessageID               string `json:"message_id,omitempty"`
+	Content                 string `json:"content,omitempty"`
 
 	Action string `json:"action,omitempty"`
 }
@@ -1755,22 +1754,39 @@ func (h *Handler) GetPendingChatTask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	head := tasks[0]
+	capability, capErr := h.Queries.GetTaskSupplementCapability(r.Context(), head.ID)
+	steerable := head.Status == "running" && head.Action == "" && capErr == nil && capability.Capability == protocol.DaemonCapabilityTaskSupplementV1
+	receipts, err := h.Queries.ListChatTaskSupplementsForSession(r.Context(), db.ListChatTaskSupplementsForSessionParams{
+		ChatSessionID: session.ID, WorkspaceID: session.WorkspaceID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load chat steering status")
+		return
+	}
+	byQueuedTask := make(map[pgtype.UUID]db.ChatTaskSupplement)
+	for _, receipt := range receipts {
+		byQueuedTask[receipt.QueuedTaskID] = receipt
+	}
 	queued := make([]QueuedChatTaskResponse, 0, len(tasks)-1)
 	for _, task := range tasks[1:] {
 		if task.Status != "queued" {
 			continue
 		}
+		receipt := byQueuedTask[task.ID]
 		queued = append(queued, QueuedChatTaskResponse{
-			Action:    task.Action,
-			TaskID:    uuidToString(task.ID),
-			Status:    task.Status,
-			CreatedAt: timestampToString(task.CreatedAt),
-			MessageID: uuidToString(task.MessageID),
-			Content:   task.Content,
+			SupplementStatus:        receipt.Status,
+			SupplementFailureReason: receipt.FailureReason.String,
+			Action:                  task.Action,
+			TaskID:                  uuidToString(task.ID),
+			Status:                  task.Status,
+			CreatedAt:               timestampToString(task.CreatedAt),
+			MessageID:               uuidToString(task.MessageID),
+			Content:                 task.Content,
 		})
 	}
 
 	writeJSON(w, http.StatusOK, PendingChatTaskResponse{
+		Steerable:     steerable,
 		TaskID:        uuidToString(head.ID),
 		Status:        head.Status,
 		CreatedAt:     timestampToString(head.CreatedAt),
@@ -1821,6 +1837,15 @@ func (h *Handler) PrioritizeQueuedChatTask(w http.ResponseWriter, r *http.Reques
 	}
 	if pending {
 		writeError(w, 409, "stop the linked issue task before replacing the chat reply")
+		return
+	}
+	steering, err := qtx.QueuedChatTaskHasActiveSupplement(r.Context(), taskID)
+	if err != nil {
+		writeError(w, 500, "failed to check steering status")
+		return
+	}
+	if steering {
+		writeErrorCode(w, 409, "chat_steering_in_progress", "message is already being delivered to the current turn")
 		return
 	}
 	prioritized, err := qtx.PrioritizeQueuedChatTask(
@@ -2006,6 +2031,10 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 		CancelledBy:                h.taskCancellationActor(r.Context(), actorType, actorID),
 		UserInitiated:              true,
 	})
+	if errors.Is(err, service.ErrChatTaskSteering) {
+		writeErrorCode(w, http.StatusConflict, "chat_steering_in_progress", err.Error())
+		return
+	}
 	if errors.Is(err, service.ErrTaskNoLongerQueued) {
 		writeError(w, http.StatusConflict, err.Error())
 		return

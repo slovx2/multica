@@ -11,9 +11,11 @@ current or successfully updated directories add no note. Fetch failures also
 produce a warning without failing the chat.
 
 The Sync button uses a bounded heartbeat request independently of the chat queue.
-An explicit click requests fetch and safe fast-forward even when automatic sync
-is off. Requests time out after one minute and old records are removed when new
-requests are created. Workspace and chat deletion also remove their sync requests.
+The project-scoped endpoint works before a chat session exists. An explicit click
+requests fetch and safe fast-forward even when automatic sync is off. A confirmed
+`force` request bypasses the directory task lock, while preserving clean-tree,
+upstream and fast-forward checks. Requests time out after one minute and old records are removed when new
+requests are created. Workspace and project deletion also remove their sync requests.
 No agent/model runs for this operation.
 
 Context usage is native request data, separate from accumulated billing usage:
@@ -42,11 +44,31 @@ usage badge. Queued compaction can be removed, but cannot be edited or steered.
 This feature is shared by the web and desktop composer. Mobile UI is
 not changed.
 
-Migrations 570–572 include rollback files. Per the explicit QORA-13 decision,
-the sync table has cascading foreign keys to chat_session, workspace, and
-agent_runtime, so all parent deletion paths remove sync records. Deploy backend/web changes and update
+Migrations 570–581 include rollback files. Migration 573 replaces the sync
+session reference with project/requester IDs and force. Project cleanup and chat
+supplement cleanup are application-owned; no new foreign keys are introduced.
+Deploy backend/web changes and update
 local daemons (and the desktop bundle's daemon) to enable all controls. No new
 application dependencies are introduced.
 
 `docs/assets/qora-13/` contains browser screenshots of the real shared components
 rendered with sanitized native-event fixture data, rather than a live provider run.
+
+## Running chat guidance
+
+`POST /api/chat/sessions/{sessionId}/queued-tasks/{taskId}/steer` accepts a UUID
+`client_request_id` and returns `task_id`, `active_task_id`, `message_id`, `status`
+and optional `failure_reason`. Pending-task responses expose `steerable` on the
+running head and `supplement_status` / `supplement_failure_reason` on queued rows.
+Only a negotiated `task-supplement-v1` turn is steerable. Unsupported providers,
+older provider versions and older daemons retain the stop-and-send action.
+
+The queued task stays in its original position until the provider acknowledges
+injection. Success moves its user message to the running task and retires the
+queued task. Rejection, timeout or turn completion keeps the input queued for
+normal execution. While delivery is pending, editing and duplicate steering are
+rejected; removal remains available. Queued file attachments use the same ID/filename and authenticated CLI download
+instructions as ordinary chat messages.
+
+Claude accepts guidance at hook boundaries. A long-running tool can therefore
+delay injection until the next hook; it does not interrupt that tool.

@@ -2955,6 +2955,8 @@ func (s *TaskService) CancelTaskWithReason(ctx context.Context, taskID pgtype.UU
 
 // CancelTaskWithResult cancels a single task and returns any chat-specific
 // cleanup result needed by user-facing callers.
+var ErrChatTaskSteering = errors.New("queued chat task is being delivered to the current turn")
+
 func (s *TaskService) CancelTaskWithResult(ctx context.Context, taskID pgtype.UUID, opts CancelTaskOptions) (*CancelTaskResult, error) {
 	// Both fields are persisted onto the cancelled row's TEXT columns below, and
 	// at least one caller interpolates an externally-supplied path into
@@ -2987,6 +2989,15 @@ func (s *TaskService) CancelTaskWithResult(ctx context.Context, taskID pgtype.UU
 			if _, err := qtx.LockChatSessionForTask(ctx, taskID); err != nil {
 				return fmt.Errorf("lock queued chat session: %w", err)
 			}
+			if opts.QueueAction == "edit" {
+				active, err := qtx.QueuedChatTaskHasActiveSupplement(ctx, taskID)
+				if err != nil {
+					return err
+				}
+				if active {
+					return ErrChatTaskSteering
+				}
+			}
 			task, err = qtx.CancelQueuedAgentTask(ctx, db.CancelQueuedAgentTaskParams{
 				ID:              taskID,
 				ChatSessionID:   opts.ExpectedChatSession,
@@ -2999,6 +3010,9 @@ func (s *TaskService) CancelTaskWithResult(ctx context.Context, taskID pgtype.UU
 			}
 			if err != nil {
 				return fmt.Errorf("cancel queued task: %w", err)
+			}
+			if err := SettleTerminalTaskState(ctx, qtx, task); err != nil {
+				return err
 			}
 			cancelledChatMessage, err = s.settleQueuedChatInput(ctx, qtx, task, opts.QueueAction)
 			return err
@@ -6259,6 +6273,9 @@ func SettleTerminalTaskState(ctx context.Context, q *db.Queries, tasks ...db.Age
 	}
 	if _, err := q.SettleTerminalTaskSupplements(ctx, taskIDs); err != nil {
 		return fmt.Errorf("settle terminal task supplements: %w", err)
+	}
+	if _, err := q.SettleTerminalChatTaskSupplements(ctx, taskIDs); err != nil {
+		return fmt.Errorf("settle terminal chat task supplements: %w", err)
 	}
 	return SettleDeliveredDelegatedFailureRecoveries(ctx, q, tasks...)
 }

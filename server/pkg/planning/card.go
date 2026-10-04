@@ -121,6 +121,7 @@ func Questions(source Source, raw json.RawMessage) (Card, error) {
 
 type Answer struct {
 	QuestionID        string   `json:"question_id"`
+	Skipped           bool     `json:"skipped"`
 	SelectedOptionIDs []string `json:"selected_option_ids"`
 	Text              string   `json:"text"`
 }
@@ -143,6 +144,9 @@ func (c Card) Prompt(d Decision) (string, string, error) {
 		}
 		return "", "", errors.New("invalid plan decision")
 	}
+	if d.Action == "dismiss" {
+		return "dismissed", "用户跳过了这些问题，请按你的判断继续。", nil
+	}
 	if d.Action != "answer" {
 		return "", "", errors.New("invalid question decision")
 	}
@@ -162,6 +166,10 @@ func (c Card) Prompt(d Decision) (string, string, error) {
 		a, exists := answers[q.ID]
 		if !exists {
 			return "", "", errors.New("missing answer")
+		}
+		if a.Skipped {
+			fmt.Fprintf(&b, "\n%s\n（跳过，请自行判断）\n", q.Text)
+			continue
 		}
 		if !q.FreeText.Allowed && a.Text != "" {
 			return "", "", errors.New("free text is not allowed")
