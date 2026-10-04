@@ -37,8 +37,35 @@ Common resource types:
 - `github_repo` — durable GitHub repo context, with `resource_ref.url`, optional
   checkout `ref`, and optional prompt-only `default_branch_hint`;
 - `local_directory` — daemon-local path context, with `resource_ref.local_path`,
-  `daemon_id`, optional label, and optional `execution_mode` (`in_place`, the
-  default, or `worktree`).
+  `daemon_id`, optional label, `execution_mode` (`in_place`, the default, or
+  `worktree`), `scope`, and `auto_sync`.
+
+`resource_ref.scope` selects which tasks use the local directory:
+
+| Value | Behavior |
+| --- | --- |
+| `all` (default when absent or empty) | Chat and issue tasks use the directory on its owning daemon. |
+| `chat` | Only chat uses the directory; issue tasks follow the regular `github_repo` / `multica repo checkout` path. |
+
+For a project used for both chat and issue work, attach a `github_repo` and a
+`local_directory` with `scope: "chat"`. Chat then uses the existing local
+checkout, while issues use task-local repository checkouts. Omitting `scope`
+also routes issue work into the local directory.
+
+`resource_ref.auto_sync` controls Git synchronization before a chat turn starts:
+
+| Value | Behavior |
+| --- | --- |
+| `off` | Skip automatic synchronization. |
+| `fetch` | Fetch remote updates without changing the local branch or working tree. |
+| `fetch_ff` (default when absent or empty) | Fetch, then fast-forward a clean branch with an upstream only when it is behind and not ahead. |
+
+Uncommitted changes and untracked files prevent fast-forwarding; ignored files
+do not. Detached HEADs, missing upstreams, ahead or divergent branches, and
+directories busy with another daemon task are left in place. Sync never resets,
+stashes, cleans, or merges divergent history. A fetch failure adds a warning and
+chat continues with the local code. The explicit Sync button requests fetch and
+safe fast-forward even when `auto_sync` is `off`.
 
 ## CLI
 
@@ -65,8 +92,36 @@ multica project resource remove <project-id> <resource-id> --output json
 For `github_repo`, non-JSON `--ref` sets `resource_ref.ref`, the default
 checkout branch/tag/SHA for future tasks in that project. JSON `--ref '<json>'`
 remains the escape hatch for full payloads or resource types not covered by
-shortcuts. `project resource update` merges shortcut edits with the existing
-`resource_ref`, so a partial edit does not clobber required fields.
+shortcuts. `project resource update` merges supported shortcut fields with the
+existing `resource_ref`, preserving required fields.
+
+There are no CLI shortcut flags for `scope` or `auto_sync`; set them through
+JSON `--ref`. To use the local directory for chat and repository checkouts for
+issues:
+
+```bash
+multica project resource add <project-id> --type github_repo --url <github-url> --output json
+multica project resource add <project-id> --type local_directory \
+  --ref '{"local_path":"/abs/path","daemon_id":"<daemon-id>","scope":"chat","auto_sync":"fetch_ff"}' --output json
+multica project resource list <project-id> --output json
+```
+
+If the resources already exist, use `update` with the local-directory resource
+ID from `list` instead of adding another resource for the same daemon:
+
+```bash
+multica project resource update <project-id> <resource-id> \
+  --ref '{"local_path":"/abs/path","daemon_id":"<daemon-id>","scope":"chat","auto_sync":"fetch_ff"}' --output json
+multica project resource list <project-id> --output json
+```
+
+JSON `--ref` replaces the whole `resource_ref`. Copy the current `local_path`
+and `daemon_id`, and retain any existing `label` and `execution_mode` you want
+to keep. Use the full JSON payload for later reference edits too: local-directory
+shortcut edits do not preserve `scope` or `auto_sync`. In the read-back output,
+verify the `github_repo` URL and the local directory's `local_path`, `daemon_id`,
+`scope: "chat"`, and intended `auto_sync` value. An absent or empty field uses
+its default; it does not disable the feature.
 
 `--start-date` / `--due-date` are optional calendar days (`YYYY-MM-DD`, like
 issue dates). On `project update`, pass an empty string (`--start-date ""`) to
