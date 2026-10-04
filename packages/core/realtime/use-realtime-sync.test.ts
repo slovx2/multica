@@ -322,6 +322,19 @@ describe("invalidateChatMessageQueries", () => {
     }
   });
 
+  it("refreshes the queue on a steer receipt and the messages once delivered", () => {
+    const qc = createQueryClient();
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    applyChatSessionUpdatedToCache(qc, "ws-steer", { chat_session_id: sessionId, supplement_status: "delivering" });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: chatKeys.pendingTask(sessionId) });
+    expect(invalidate).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: chatKeys.messages(sessionId) }));
+    invalidate.mockClear();
+    applyChatSessionUpdatedToCache(qc, "ws-steer", { chat_session_id: sessionId, supplement_status: "delivered" });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: chatKeys.pendingTask(sessionId) });
+    expect(invalidate).toHaveBeenCalledWith(expect.objectContaining({ queryKey: chatKeys.messages(sessionId) }));
+    qc.clear();
+  });
+
   it("invalidates both legacy and paged chat message caches", () => {
     const qc = createQueryClient();
     const invalidate = vi.spyOn(qc, "invalidateQueries");
