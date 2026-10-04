@@ -10,6 +10,7 @@ import { projectResourcesOptions } from "@multica/core/projects";
 import { runtimeListOptions } from "@multica/core/runtimes";
 import type { ChatContextState } from "@multica/core/types/chat";
 import type { LocalDirectoryResourceRef } from "@multica/core/types";
+import { RefreshCw } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
 import {
   AlertDialog,
@@ -132,15 +133,25 @@ export function CompactContextDialog({
   );
 }
 
+type SyncConfirmReason = "running" | "busy";
+
+/**
+ * "Sync code" pill beside the project picker: fetches and safely
+ * fast-forwards the project's local directory on the agent's machine. It works
+ * before the first message; while the agent runs (or another run holds the
+ * directory) it asks first and then forces the fast-forward.
+ */
 export function ChatDirectorySync({
-  sessionId,
   projectId,
+  agentId,
   runtimeId,
+  running,
   disabled,
 }: {
-  sessionId: string;
   projectId: string;
+  agentId: string;
   runtimeId?: string;
+  running?: boolean;
   disabled?: boolean;
 }) {
   const { t } = useT("chat");
@@ -155,17 +166,20 @@ export function ChatDirectorySync({
         runtime?.daemon_id,
   );
   const [request, setRequest] = useState<{
-    session: string;
+    projectId: string;
     id: string;
+    force: boolean;
   } | null>(null);
+  const [confirm, setConfirm] = useState<SyncConfirmReason | null>(null);
   const sync = useMutation({
-    mutationFn: () => api.syncChatDirectory(sessionId),
-    onSuccess: (value) => setRequest({ session: sessionId, id: value.id }),
+    mutationFn: (force: boolean) =>
+      api.syncProjectDirectory(projectId, { agent_id: agentId, force }),
+    onSuccess: (value, force) => setRequest({ projectId, id: value.id, force }),
     onError: (error: Error) => toast.error(error.message),
   });
   const status = useQuery({
-    queryKey: ["chat-directory-sync", wsId, request?.session, request?.id],
-    queryFn: () => api.getChatDirectorySync(request!.session, request!.id),
+    queryKey: ["chat-directory-sync", wsId, request?.projectId, request?.id],
+    queryFn: () => api.getProjectDirectorySync(request!.projectId, request!.id),
     enabled: !!request,
     refetchInterval: (query) =>
       query.state.data?.status === "completed" ||
@@ -192,6 +206,8 @@ export function ChatDirectorySync({
       toast.success(t(($) => $.context.current));
     else if (result?.status === "updated")
       toast.success(t(($) => $.context.updated, { count: result.updated }));
+    else if (result?.reason === "directory_busy" && !request.force)
+      setConfirm("busy");
     else {
       const reason = result?.reason;
       const known = [
@@ -222,16 +238,52 @@ export function ChatDirectorySync({
   if (!available) return null;
   const pending = sync.isPending || !!request;
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="xs"
-      disabled={disabled || pending}
-      aria-busy={pending}
-      title={t(($) => $.context.sync_hint)}
-      onClick={() => sync.mutate()}
-    >
-      {pending ? t(($) => $.context.syncing) : t(($) => $.context.sync)}
-    </Button>
+    <>
+      <button
+        type="button"
+        data-slot="chat-directory-sync"
+        disabled={disabled || pending}
+        aria-busy={pending}
+        title={t(($) => $.context.sync_hint)}
+        onClick={() => (running ? setConfirm("running") : sync.mutate(false))}
+        className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-surface-border bg-surface-raised px-2 text-caption font-medium text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-60 pointer-coarse:h-8"
+      >
+        <RefreshCw
+          aria-hidden="true"
+          className={`size-3 shrink-0 text-muted-foreground ${pending ? "animate-spin" : ""}`}
+        />
+        {pending ? t(($) => $.context.syncing) : t(($) => $.context.sync)}
+      </button>
+      <AlertDialog
+        open={confirm !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirm(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t(($) => $.context.sync_confirm_title)}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirm === "busy"
+                ? t(($) => $.context.sync_confirm_busy)
+                : t(($) => $.context.sync_confirm_running)}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button variant="outline" onClick={() => setConfirm(null)}>
+              {t(($) => $.context.cancel)}
+            </Button>
+            <Button
+              onClick={() => {
+                setConfirm(null);
+                sync.mutate(true);
+              }}
+            >
+              {t(($) => $.context.sync_confirm)}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

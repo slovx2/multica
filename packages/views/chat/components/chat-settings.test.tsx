@@ -109,6 +109,19 @@ describe("chat session settings", () => {
   });
   afterEach(cleanup);
 
+  it("gives every + menu row an icon and a 44px touch target on coarse pointers", async () => {
+    mount();
+    await openMenu();
+    const content = screen.getByRole("menu");
+    expect(content).toHaveClass("min-w-56");
+    const rows = screen.getAllByRole("menuitem");
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) {
+      expect(row).toHaveClass("pointer-coarse:min-h-11", "min-h-8");
+      expect(row.querySelector("svg")).not.toBeNull();
+    }
+  });
+
   it("has no persistent plan tag, enables it from +, and exits through ×", async () => {
     mount();
     expect(screen.getByTestId("tags")).toBeEmptyDOMElement();

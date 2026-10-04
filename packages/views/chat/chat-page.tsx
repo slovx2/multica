@@ -1,6 +1,6 @@
 "use client";
 
-import { ChatCards } from "./components/chat-cards";
+import { ChatPlanningComposer, useChatPlanning } from "./components/use-chat-planning";
 
 import { useEffect, useRef, useState } from "react";
 import { useDefaultLayout } from "react-resizable-panels";
@@ -256,6 +256,7 @@ export function ChatPage() {
   // `@container`: the conversation column's gutter (CHAT_GUTTER) widens with
   // THIS pane, which the user resizes independently of the browser window.
   const queuedTasks = c.pendingTask?.queued_tasks ?? [];
+  const planning = useChatPlanning(c.activeSessionId ?? null, c.messages);
   const conversation = (
     <div className="flex flex-1 flex-col min-h-0 @container">
       {c.currentSession && (
@@ -271,6 +272,8 @@ export function ChatPage() {
         <ChatMessageList
           key={c.activeSessionId}
           messages={c.messages}
+          planCards={planning.planCards}
+          onOpenPlan={planning.openPlanDialog}
           pendingTask={c.pendingTask}
           availability={c.availability}
           firstItemIndex={c.firstItemIndex}
@@ -320,19 +323,22 @@ export function ChatPage() {
         <OfflineBanner agentName={c.activeAgent?.name} availability={c.availability} />
       )}
 
+      <ChatPlanningComposer planning={planning} disabled={c.isAgentAccessRevoked || c.isAgentArchived} />
+
       <ChatQueue
         tasks={queuedTasks}
         headStatus={c.pendingTask?.status}
         onSendNow={c.handleSendQueuedTaskNow}
+        steerable={c.pendingTask?.steerable === true}
         sendNowDisabled={c.isAgentAccessRevoked}
         onEdit={c.handleEditQueuedTask}
         onRemove={c.handleRemoveQueuedTask}
         onClear={c.handleClearQueuedTasks}
       />
 
-      <ChatCards sessionId={c.activeSessionId ?? null} disabled={c.isAgentAccessRevoked || c.isAgentArchived} />
       <ChatInput
         runtimeId={c.activeAgent?.runtime_id}
+        agentId={c.activeAgent?.id}
         model={c.activeAgent?.model}
         sessionId={c.activeSessionId ?? null}
         onSend={c.handleSend}

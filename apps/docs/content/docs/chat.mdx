@@ -41,10 +41,13 @@ Direct chats created in Multica are visible only to their creator; other workspa
 
 With a Claude Code or Codex runtime, turn on **Plan mode** above the input before sending a message. The setting belongs to the conversation. Other runtimes reject plan mode with an explicit error.
 
-Native questions appear as cards with options and free-text fields. Answering starts the next turn in the same conversation. Native plans appear as Markdown cards:
+Native questions open in a panel above the input, one question at a time. Picking a single choice moves to the next question; multiple choice and written replies use **Next**. You can skip a question, go back through the step chips, review your answers, or **Skip all** to let the agent decide. Collapsing the panel does not skip anything. Submitting starts the next turn in the same conversation.
 
-- **Approve, create/update issues** turns plan mode off and asks the agent to record the plan, including any feedback you entered, as issues without implementing it.
-- **Reject** sends your feedback in a new plan-mode turn. A newer plan supersedes an older pending plan.
+Native plans appear as the agent's message in the conversation; click one to read the full plan in a large dialog. A newer plan replaces an older pending one. While the plan is the latest message, the bar above the input and the dialog offer:
+
+- **Approve, create/update issues** turns plan mode off and asks the agent to record the plan as issues without implementing it.
+- **Request changes** sends your feedback in a new plan-mode turn.
+- **Reject** asks for a revised plan without feedback.
 
 The provider process ends while waiting for your decision. There is no “approve and implement” action.
 

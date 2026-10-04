@@ -99,38 +99,54 @@ func (h *Handler) ReportChatContext(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
-// InitiateChatDirectorySync uses the heartbeat channel so it also works from web clients.
-func (h *Handler) InitiateChatDirectorySync(w http.ResponseWriter, r *http.Request) {
+// InitiateProjectDirectorySync uses the heartbeat channel without requiring a chat session.
+func (h *Handler) InitiateProjectDirectorySync(w http.ResponseWriter, r *http.Request) {
 	user, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
-	cs, ok := h.gatePublicChatSessionForUser(w, r, user, ctxWorkspaceID(r.Context()), chi.URLParam(r, "sessionId"))
+	project, ok := h.directorySyncProject(w, r)
 	if !ok {
 		return
 	}
-	if !cs.ProjectID.Valid || cs.Status != "active" {
-		writeError(w, 409, "chat has no active project")
+	var body struct {
+		AgentID string `json:"agent_id"`
+		Force   bool   `json:"force"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384)).Decode(&body) != nil {
+		writeError(w, 400, "invalid sync request")
 		return
 	}
-	carrier, err := h.Queries.GetAgent(r.Context(), cs.AgentID)
-	if err != nil || !carrier.RuntimeID.Valid {
-		writeError(w, 409, "chat has no runtime")
+	agentID, ok := parseUUIDOrBadRequest(w, body.AgentID, "agent_id")
+	if !ok {
 		return
 	}
-	if !h.canInvokeAgent(r.Context(), carrier, "member", user, user, uuidToString(cs.WorkspaceID)) {
+	carrier, err := h.Queries.GetAgentInWorkspace(r.Context(), db.GetAgentInWorkspaceParams{ID: agentID, WorkspaceID: project.WorkspaceID})
+	if err != nil {
+		writeError(w, 404, "agent not found")
+		return
+	}
+	if !carrier.RuntimeID.Valid {
+		writeError(w, 409, "agent has no runtime")
+		return
+	}
+	if !h.canInvokeAgent(r.Context(), carrier, "member", user, user, uuidToString(project.WorkspaceID)) {
 		writeError(w, 403, "agent invocation not allowed")
 		return
 	}
-	rt, _, ok := h.requireRuntimeReadAccess(w, r, "chat directory sync", uuidToString(carrier.RuntimeID))
+	rt, _, ok := h.requireRuntimeReadAccess(w, r, "project directory sync", uuidToString(carrier.RuntimeID))
 	if !ok {
 		return
 	}
-	if !runtimeHasCapability(rt.Metadata, protocol.DaemonCapabilityChatContextV1) {
-		writeError(w, 409, "update daemon to sync chat directories")
+	if rt.WorkspaceID != project.WorkspaceID {
+		writeError(w, 404, "runtime not found")
 		return
 	}
-	resources, err := h.Queries.ListProjectResources(r.Context(), cs.ProjectID)
+	if !runtimeHasCapability(rt.Metadata, protocol.DaemonCapabilityChatContextV1) {
+		writeError(w, 409, "update daemon to sync project directories")
+		return
+	}
+	resources, err := h.Queries.ListProjectResources(r.Context(), project.ID)
 	if err != nil {
 		writeError(w, 500, "failed to read project resources")
 		return
@@ -140,12 +156,28 @@ func (h *Handler) InitiateChatDirectorySync(w http.ResponseWriter, r *http.Reque
 			continue
 		}
 		var ref localDirectoryRef
-		if json.Unmarshal(res.ResourceRef, &ref) != nil || ref.DaemonID != rt.DaemonID.String {
+		if json.Unmarshal(res.ResourceRef, &ref) != nil || !rt.DaemonID.Valid || ref.DaemonID == "" || ref.DaemonID != rt.DaemonID.String {
 			continue
 		}
-		id, err := h.Queries.CreateChatDirectorySync(r.Context(), db.CreateChatDirectorySyncParams{ID: dbid.NewV7(), ChatSessionID: cs.ID, WorkspaceID: cs.WorkspaceID, RuntimeID: rt.ID, ResourceRef: res.ResourceRef})
+		tx, err := h.TxStarter.Begin(r.Context())
+		if err != nil {
+			writeError(w, 500, "failed to begin sync request")
+			return
+		}
+		defer tx.Rollback(r.Context())
+		q := h.Queries.WithTx(tx)
+		// Serialize creation with project deletion so its cleanup cannot miss us.
+		if _, err := q.LockProjectForDelete(r.Context(), db.LockProjectForDeleteParams{ID: project.ID, WorkspaceID: project.WorkspaceID}); err != nil {
+			writeError(w, 404, "project not found")
+			return
+		}
+		id, err := q.CreateChatDirectorySync(r.Context(), db.CreateChatDirectorySyncParams{ID: dbid.NewV7(), ProjectID: project.ID, RequesterID: parseUUID(user), WorkspaceID: project.WorkspaceID, RuntimeID: rt.ID, ResourceRef: res.ResourceRef, Force: body.Force})
 		if err != nil {
 			writeError(w, 500, "failed to request sync")
+			return
+		}
+		if err := tx.Commit(r.Context()); err != nil {
+			writeError(w, 500, "failed to save sync request")
 			return
 		}
 		_ = h.Queries.DeleteExpiredChatDirectorySync(r.Context())
@@ -153,15 +185,15 @@ func (h *Handler) InitiateChatDirectorySync(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, 202, map[string]string{"id": uuidToString(id)})
 		return
 	}
-	writeError(w, 409, "no local directory for this chat runtime")
+	writeError(w, 409, "no local directory for this agent runtime")
 }
 
-func (h *Handler) GetChatDirectorySync(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) GetProjectDirectorySync(w http.ResponseWriter, r *http.Request) {
 	user, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
-	cs, ok := h.gatePublicChatSessionForUser(w, r, user, ctxWorkspaceID(r.Context()), chi.URLParam(r, "sessionId"))
+	project, ok := h.directorySyncProject(w, r)
 	if !ok {
 		return
 	}
@@ -169,7 +201,7 @@ func (h *Handler) GetChatDirectorySync(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	result, err := h.Queries.GetChatDirectorySync(r.Context(), db.GetChatDirectorySyncParams{ID: id, ChatSessionID: cs.ID, WorkspaceID: cs.WorkspaceID})
+	result, err := h.Queries.GetChatDirectorySync(r.Context(), db.GetChatDirectorySyncParams{ID: id, ProjectID: project.ID, WorkspaceID: project.WorkspaceID, RequesterID: parseUUID(user)})
 	if err != nil {
 		writeError(w, 404, "sync not found")
 		return
@@ -207,4 +239,25 @@ func (h *Handler) ReportChatDirectorySync(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+// directorySyncProject enforces both the selected workspace and membership.
+func (h *Handler) directorySyncProject(w http.ResponseWriter, r *http.Request) (db.Project, bool) {
+	id, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "project_id")
+	if !ok {
+		return db.Project{}, false
+	}
+	workspaceID, ok := parseUUIDOrBadRequest(w, h.resolveWorkspaceID(r), "workspace_id")
+	if !ok {
+		return db.Project{}, false
+	}
+	if _, ok := h.requireWorkspaceMember(w, r, uuidToString(workspaceID), "project not found"); !ok {
+		return db.Project{}, false
+	}
+	project, err := h.Queries.GetProjectInWorkspace(r.Context(), db.GetProjectInWorkspaceParams{ID: id, WorkspaceID: workspaceID})
+	if err != nil {
+		writeError(w, 404, "project not found")
+		return db.Project{}, false
+	}
+	return project, true
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { ChatCards } from "./chat-cards";
+import { ChatPlanningComposer, useChatPlanning } from "./use-chat-planning";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -839,6 +839,7 @@ export function ChatWindow() {
 
   const contextItems = useChatContextItems(wsId);
   const queuedTasks = pendingTask?.queued_tasks ?? [];
+  const planning = useChatPlanning(activeSessionId ?? null, messages);
 
   return (
     <motion.div
@@ -933,6 +934,8 @@ export function ChatWindow() {
         <ChatMessageList
           key={activeSessionId}
           messages={messages}
+          planCards={planning.planCards}
+          onOpenPlan={planning.openPlanDialog}
           pendingTask={pendingTask}
           availability={availability}
           firstItemIndex={firstItemIndex}
@@ -991,10 +994,13 @@ export function ChatWindow() {
         <OfflineBanner agentName={activeAgent?.name} availability={availability} />
       )}
 
+      <ChatPlanningComposer planning={planning} disabled={isAgentAccessRevoked || isAgentArchived} />
+
       <ChatQueue
         tasks={queuedTasks}
         headStatus={pendingTask?.status}
         onSendNow={handleSendQueuedTaskNow}
+        steerable={pendingTask?.steerable === true}
         sendNowDisabled={isAgentAccessRevoked}
         onEdit={handleEditQueuedTask}
         onRemove={handleRemoveQueuedTask}
@@ -1004,9 +1010,9 @@ export function ChatWindow() {
       {/* Input — disabled for legacy archived sessions and for sessions whose
        *  agent has been archived (read-only); locked out entirely when there's
        *  no agent (the EmptyState above carries the CTA). */}
-      <ChatCards sessionId={activeSessionId ?? null} disabled={isAgentAccessRevoked || isAgentArchived} />
       <ChatInput
         runtimeId={activeAgent?.runtime_id}
+        agentId={activeAgent?.id}
         model={activeAgent?.model}
         sessionId={activeSessionId ?? null}
         onSend={handleSend}

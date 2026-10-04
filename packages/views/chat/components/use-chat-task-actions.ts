@@ -9,7 +9,9 @@ import { chatKeys } from "@multica/core/chat/queries";
 import {
   prioritizePendingChatTask,
   removePendingChatTask,
+  setQueuedChatTaskSteer,
 } from "@multica/core/chat/pending";
+import { createSafeId } from "@multica/core/utils";
 import { removeChatMessageFromCaches } from "@multica/core/realtime";
 import { createLogger } from "@multica/core/logger";
 import type {
@@ -18,6 +20,7 @@ import type {
   ChatPendingTask,
 } from "@multica/core/types";
 import { useT } from "../../i18n";
+import { useSteerFailedMessage } from "./chat-queue";
 
 const apiLogger = createLogger("chat.api");
 
@@ -188,10 +191,62 @@ export function useChatTaskActions(
     }
   }, [activeSessionId, qc, t, wsId]);
 
+  const steerFailedMessage = useSteerFailedMessage();
+
+  // Inject the queued message into the running turn. The receipt comes back
+  // through the pending-task snapshot (queued row `supplement_status`); a failed delivery
+  // leaves the task in the queue, so nothing is lost either way.
+  const steerQueuedTask = useCallback(
+    async (sessionId: string, taskId: string) => {
+      const pendingKey = chatKeys.pendingTask(sessionId);
+      await qc.cancelQueries({ queryKey: pendingKey });
+      const pendingSnapshot = qc.getQueryData<ChatPendingTask>(pendingKey);
+      qc.setQueryData<ChatPendingTask | undefined>(
+        pendingKey,
+        (old) => setQueuedChatTaskSteer(old, taskId, "pending"),
+      );
+      try {
+        const receipt = await api.steerQueuedChatTask(sessionId, taskId, createSafeId());
+        if (receipt.task_id !== taskId) throw new Error("invalid steer response");
+        if (receipt.status === "failed") {
+          qc.setQueryData(pendingKey, pendingSnapshot);
+          toast.error(steerFailedMessage(receipt.failure_reason));
+          return;
+        }
+        qc.setQueryData<ChatPendingTask | undefined>(
+          pendingKey,
+          (old) => setQueuedChatTaskSteer(old, taskId, receipt.status),
+        );
+      } catch (err) {
+        qc.setQueryData(pendingKey, pendingSnapshot);
+        apiLogger.warn("steerQueuedTask.error", { taskId, sessionId, err });
+        const code = err instanceof ApiError
+          ? (err.body as { code?: unknown } | undefined)?.code
+          : undefined;
+        toast.error(
+          code === "turn_ended"
+            ? steerFailedMessage("turn_ended")
+            : err instanceof ApiError && err.status === 409
+              ? t(($) => $.queue.steer_unavailable_toast)
+              : t(($) => $.queue.action_failed_toast),
+        );
+      } finally {
+        qc.invalidateQueries({ queryKey: pendingKey });
+      }
+    },
+    [qc, steerFailedMessage, t],
+  );
+
   const handleSendQueuedTaskNow = useCallback(
     async (taskId: string) => {
       if (!activeSessionId) return;
       const pendingKey = chatKeys.pendingTask(activeSessionId);
+      if (qc.getQueryData<ChatPendingTask>(pendingKey)?.steerable === true) {
+        await steerQueuedTask(activeSessionId, taskId);
+        return;
+      }
+      // Runtimes that cannot take input mid-turn: stop the current reply and
+      // run this message next.
       await qc.cancelQueries({ queryKey: pendingKey });
       const pendingSnapshot = qc.getQueryData<ChatPendingTask>(pendingKey);
       qc.setQueryData<ChatPendingTask>(
@@ -226,7 +281,7 @@ export function useChatTaskActions(
         qc.invalidateQueries({ queryKey: pendingKey });
       }
     },
-    [activeSessionId, cancelChatTask, qc, t],
+    [activeSessionId, cancelChatTask, qc, steerQueuedTask, t],
   );
 
   return {

@@ -1,4 +1,4 @@
-import type { ChatExecutionOverrides, DirectorySyncResult } from "../types/chat";
+import type { ChatDirectorySyncRequest, ChatExecutionOverrides, DirectorySyncResult } from "../types/chat";
 import { DirectorySyncRequestSchema, DirectorySyncStatusSchema, SendChatActionResponseSchema } from "./schemas";
 import { planningLinksSchema, type PlanningLink, chatCardsSchema, type CardDecision, type ChatCard } from "./planning-schema";
 import type { ZodType } from "zod";
@@ -103,6 +103,7 @@ import type {
   ChatDraftRestoresResponse,
   ChatPendingTask,
   PrioritizeQueuedChatTaskResponse,
+  SteerQueuedChatTaskResponse,
   PendingChatTasksResponse,
   HasPendingChatTasksResponse,
   SendChatMessageResponse,
@@ -265,6 +266,7 @@ import {
   ChatSessionListSchema,
   ChatSessionSchema,
   PrioritizeQueuedChatTaskResponseSchema,
+  SteerQueuedChatTaskResponseSchema,
   SendChatMessageResponseSchema,
   StartMikaOnboardingResponseSchema,
   ChildIssuesResponseSchema,
@@ -3812,21 +3814,24 @@ export class ApiClient {
     }
   }
 
-  async syncChatDirectory(sessionId: string) {
-    const raw = await this.fetch<unknown>(`/api/chat/sessions/${sessionId}/directory-sync`, { method: "POST" });
+  async syncProjectDirectory(projectId: string, body: ChatDirectorySyncRequest) {
+    const raw = await this.fetch<unknown>(`/api/projects/${projectId}/directory-sync`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
     const request = parseWithFallback<{ id: string } | null>(
-      raw, DirectorySyncRequestSchema, null, { endpoint: "POST chat directory-sync" },
+      raw, DirectorySyncRequestSchema, null, { endpoint: "POST /api/projects/:id/directory-sync" },
     );
     if (!request) throw new Error("Invalid sync response");
     return request;
   }
 
-  async getChatDirectorySync(sessionId: string, id: string) {
-    const raw = await this.fetch<unknown>(`/api/chat/sessions/${sessionId}/directory-sync/${id}`);
+  async getProjectDirectorySync(projectId: string, id: string) {
+    const raw = await this.fetch<unknown>(`/api/projects/${projectId}/directory-sync/${id}`);
     const result = parseWithFallback<{
       status: "pending" | "running" | "completed" | "timeout";
       result?: DirectorySyncResult | null;
-    } | null>(raw, DirectorySyncStatusSchema, null, { endpoint: "GET chat directory-sync" });
+    } | null>(raw, DirectorySyncStatusSchema, null, { endpoint: "GET /api/projects/:id/directory-sync/:syncId" });
     if (!result) throw new Error("Invalid sync response");
     return result;
   }
@@ -3913,6 +3918,30 @@ export class ApiClient {
       EMPTY_PRIORITIZE_QUEUED_CHAT_TASK_RESPONSE,
       { endpoint: "POST /api/chat/sessions/:id/queued-tasks/:taskId/prioritize" },
     );
+  }
+
+  /**
+   * Inject a queued message into the running turn without stopping it.
+   * `client_request_id` makes retries idempotent. This returns a delivery
+   * receipt; the outcome arrives through the queued row's `supplement_status`.
+   */
+  async steerQueuedChatTask(
+    sessionId: string,
+    taskId: string,
+    clientRequestId: string,
+  ): Promise<SteerQueuedChatTaskResponse> {
+    const raw = await this.fetch<unknown>(
+      `/api/chat/sessions/${sessionId}/queued-tasks/${taskId}/steer`,
+      { method: "POST", body: JSON.stringify({ client_request_id: clientRequestId }) },
+    );
+    const result = parseWithFallback<SteerQueuedChatTaskResponse | null>(
+      raw,
+      SteerQueuedChatTaskResponseSchema,
+      null,
+      { endpoint: "POST /api/chat/sessions/:id/queued-tasks/:taskId/steer" },
+    );
+    if (!result) throw new Error("invalid steer response");
+    return result;
   }
 
   async clearQueuedChatTasks(sessionId: string): Promise<void> {

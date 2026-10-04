@@ -1523,7 +1523,7 @@ func (h *Handler) processHeartbeat(ctx context.Context, runtimeID string, suppor
 			slog.Warn("claim directory sync", "error", e)
 		} else {
 			for _, req := range requests {
-				ack.PendingDirectorySync = append(ack.PendingDirectorySync, protocol.DaemonHeartbeatPendingDirectorySync{ID: uuidToString(req.ID), ResourceRef: req.ResourceRef})
+				ack.PendingDirectorySync = append(ack.PendingDirectorySync, protocol.DaemonHeartbeatPendingDirectorySync{ID: uuidToString(req.ID), ResourceRef: req.ResourceRef, Force: req.Force})
 			}
 		}
 	}
@@ -4206,7 +4206,7 @@ func (h *Handler) StartTask(w http.ResponseWriter, r *http.Request) {
 	// A daemon must use this response rather than its own offer: an old server
 	// ignores the offer and omits the field, which keeps daemon-first rollouts
 	// fail closed without requiring synchronized deployment.
-	if task.IssueID.Valid {
+	if task.IssueID.Valid || task.ChatSessionID.Valid {
 		if capability, capabilityErr := h.Queries.GetTaskSupplementCapability(r.Context(), task.ID); capabilityErr == nil {
 			resp.SupplementCapability = capability.Capability
 		} else if !errors.Is(capabilityErr, pgx.ErrNoRows) {

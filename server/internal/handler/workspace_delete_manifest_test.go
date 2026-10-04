@@ -50,7 +50,7 @@ var workspaceDeletionManifest = map[string]workspaceDeleteAction{
 	"channel_reply_delivery":             workspaceDelete,
 	"channel_task_delivery":              workspaceDelete,
 	"channel_user_binding":               workspaceDelete,
-	"chat_directory_sync":                workspaceDelete,
+	"chat_directory_sync":                workspaceDelete, // Project-scoped; session deletion no longer owns these requests.
 	"chat_draft_restore":                 workspaceDelete,
 	"chat_message":                       workspaceDelete,
 	"chat_pinned_agent":                  workspaceDelete,
@@ -129,6 +129,7 @@ var workspaceDeletionManifest = map[string]workspaceDeleteAction{
 	"squad_member":                       workspaceDelete,
 	"sys_cron_executions":                workspaceDeleteKeep,
 	"task_message":                       workspaceDelete,
+	"chat_task_supplement":               workspaceDelete,
 	"task_supplement":                    workspaceDelete,
 	"task_supplement_capability":         workspaceDelete,
 	"task_token":                         workspaceDelete,

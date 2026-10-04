@@ -736,7 +736,8 @@ type claudeResultModelUsage struct {
 	CacheReadInputTokens     int64 `json:"cacheReadInputTokens"`
 	CacheCreationInputTokens int64 `json:"cacheCreationInputTokens"`
 
-	ContextWindow int64 `json:"contextWindow"`
+	ContextWindow  int64  `json:"contextWindow"`
+	CanonicalModel string `json:"canonicalModel"`
 }
 
 // claudeTerminalReasonFailure turns Claude Code's structured terminal_reason

@@ -2,6 +2,12 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+
+	"github.com/multica-ai/multica/server/pkg/protocol"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,8 +16,8 @@ import (
 
 func TestLocalDirectorySync(t *testing.T) {
 	for _, tc := range []struct {
-		name, mode, want                                                  string
-		dirty, untracked, ahead, behind, noUpstream, fail, busy, detached bool
+		name, mode, want                                                         string
+		dirty, untracked, ahead, behind, noUpstream, fail, busy, detached, force bool
 	}{
 		{name: "behind", behind: true, want: "updated"},
 		{name: "current", want: "current"},
@@ -24,6 +30,11 @@ func TestLocalDirectorySync(t *testing.T) {
 		{name: "fetch only", mode: "fetch", behind: true, want: "fetch_only"},
 		{name: "off", mode: "off", behind: true, want: "disabled"},
 		{name: "busy", busy: true, behind: true, want: "directory_busy"},
+		{name: "forced busy", busy: true, force: true, behind: true, want: "updated"},
+		{name: "forced busy dirty", busy: true, force: true, dirty: true, behind: true, want: "dirty"},
+		{name: "forced busy untracked", busy: true, force: true, untracked: true, behind: true, want: "dirty"},
+		{name: "forced busy diverged", busy: true, force: true, ahead: true, behind: true, want: "diverged"},
+		{name: "forced busy no upstream", busy: true, force: true, noUpstream: true, behind: true, want: "no_upstream"},
 		{name: "detached", detached: true, behind: true, want: "detached_head"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -78,7 +89,45 @@ func TestLocalDirectorySync(t *testing.T) {
 			if tc.fail {
 				git(local, "remote", "set-url", "origin", filepath.Join(root, "missing"))
 			}
-			got := syncLocalDirectory(context.Background(), local, tc.mode, !tc.busy)
+			var got directorySyncResult
+			if tc.busy {
+				// Exercise the heartbeat handler, including the lock and report.
+				resultCh := make(chan directorySyncResult, 1)
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					var report struct {
+						Result directorySyncResult `json:"result"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
+						t.Error(err)
+					}
+					resultCh <- report.Result
+					w.WriteHeader(http.StatusOK)
+				}))
+				defer server.Close()
+				d := &Daemon{cfg: Config{DaemonID: "fixture"}, localPathLocks: NewLocalPathLocker(), client: NewClient(server.URL), logger: slog.Default()}
+				real, err := resolveRealPath(local)
+				if err != nil {
+					t.Fatal(err)
+				}
+				release := d.localPathLocks.TryAcquire(real, "running-task")
+				if release == nil {
+					t.Fatal("fixture lock unavailable")
+				}
+				defer release()
+				ref, _ := json.Marshal(localDirectoryRef{LocalPath: local, DaemonID: "fixture"})
+				d.handleDirectorySync(context.Background(), "runtime", protocol.DaemonHeartbeatPendingDirectorySync{ID: "request", ResourceRef: ref, Force: tc.force})
+				select {
+				case got = <-resultCh:
+				default:
+					t.Fatal("sync result was not reported")
+				}
+				if unexpected := d.localPathLocks.TryAcquire(real, "observer"); unexpected != nil {
+					unexpected()
+					t.Fatal("sync released another task's lock")
+				}
+			} else {
+				got = syncLocalDirectory(context.Background(), local, tc.mode, true)
+			}
 			actual := got.Reason
 			if actual == "" {
 				actual = got.Status

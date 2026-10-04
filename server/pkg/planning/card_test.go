@@ -58,3 +58,43 @@ func TestMalformedCardsAndAnswers(t *testing.T) {
 		}
 	}
 }
+
+func TestSkippedQuestionAnswers(t *testing.T) {
+	card, err := Questions(Source{Provider: "codex", ConversationID: "s", ItemID: "i"}, json.RawMessage(`{"questions":[{"question":"Choose a library","options":[{"label":"A"},{"label":"B"}]},{"question":"Choose tests","options":[{"label":"Unit"},{"label":"Integration"}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision := Decision{Action: "answer", Answers: []Answer{
+		{QuestionID: "q0", Skipped: true, SelectedOptionIDs: []string{"o0"}, Text: "Discarded draft"},
+		{QuestionID: "q1", SelectedOptionIDs: []string{"o1"}},
+	}}
+	status, prompt, err := card.Prompt(decision)
+	if err != nil || status != "answered" || !strings.Contains(prompt, "Choose a library\n（跳过，请自行判断）") || !strings.Contains(prompt, "Choose tests\nIntegration") || strings.Contains(prompt, "Discarded draft") {
+		t.Fatalf("status=%s prompt=%s error=%v", status, prompt, err)
+	}
+	for _, answers := range [][]Answer{
+		{{QuestionID: "q0", Skipped: true}},
+		{{QuestionID: "q0", Skipped: true}, {QuestionID: "q0", Skipped: true}},
+		{{QuestionID: "q0", Skipped: true}, {QuestionID: "unknown", Skipped: true}},
+		{{QuestionID: "q0", Skipped: true}, {QuestionID: "q1"}},
+	} {
+		if _, _, err := card.Prompt(Decision{Action: "answer", Answers: answers}); err == nil {
+			t.Fatalf("accepted incomplete or invalid answers: %+v", answers)
+		}
+	}
+	var legacy Answer
+	if err := json.Unmarshal([]byte(`{"question_id":"q0","selected_option_ids":[],"text":""}`), &legacy); err != nil || legacy.Skipped {
+		t.Fatalf("legacy answer must not default to skipped: %+v %v", legacy, err)
+	}
+}
+
+func TestDismissQuestions(t *testing.T) {
+	card := Card{Kind: "user_question", Questions: []Question{{ID: "q0", Text: "Choose", Required: true}}}
+	status, prompt, err := card.Prompt(Decision{Action: "dismiss"})
+	if err != nil || status != "dismissed" || prompt != "用户跳过了这些问题，请按你的判断继续。" {
+		t.Fatalf("status=%s prompt=%s error=%v", status, prompt, err)
+	}
+	if _, _, err := (Card{Kind: "plan"}).Prompt(Decision{Action: "dismiss"}); err == nil {
+		t.Fatal("dismiss must not resolve a plan")
+	}
+}

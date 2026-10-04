@@ -57,6 +57,9 @@ import {
   splitTimeline,
 } from "../lib/copy-text";
 import { stripChatQuickActionsProtocol } from "../lib/quick-actions";
+import { mergePlanCards } from "../lib/plan-timeline";
+import type { ChatCard } from "@multica/core/chat/planning";
+import { ChatPlanMessage } from "./chat-plan-message";
 import { useT } from "../../i18n";
 
 // ─── Public component ────────────────────────────────────────────────────
@@ -92,6 +95,9 @@ interface ChatMessageListProps {
    * that reply until chat:quick_actions resolves it.
    */
   quickActionsPendingMessageId?: string | null;
+  /** Visible plan cards, woven in after the assistant turn that wrote them. */
+  planCards?: readonly ChatCard[];
+  onOpenPlan?: (cardId: string) => void;
 }
 
 // ─── Virtuoso chrome ─────────────────────────────────────────────────────
@@ -123,7 +129,8 @@ interface ChatListContext {
  */
 type ChatRenderItem =
   | { key: string; kind: "message"; message: ChatMessage; taskId: string | null }
-  | { key: string; kind: "live"; taskId: string };
+  | { key: string; kind: "live"; taskId: string }
+  | { key: string; kind: "plan"; card: ChatCard; taskId: null };
 
 /**
  * Row key for a persisted message. Assistant turns carrying a task_id key on
@@ -170,6 +177,8 @@ function ChatListFooter({ context }: { context?: ChatListContext }) {
   );
 }
 
+const EMPTY_PLAN_CARDS: readonly ChatCard[] = [];
+
 const LIST_COMPONENTS: Components<ChatRenderItem, ChatListContext> = {
   Header: ChatListHeader,
   Footer: ChatListFooter,
@@ -188,6 +197,8 @@ export function ChatMessageList({
   quickActionsDisabled = false,
   onRegenerateQuickActions,
   quickActionsPendingMessageId = null,
+  planCards = EMPTY_PLAN_CARDS,
+  onOpenPlan,
 }: ChatMessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollContainerEl, setScrollContainerEl] = useState<HTMLDivElement | null>(null);
@@ -274,8 +285,19 @@ export function ChatMessageList({
     if (hasLive && pendingTaskId) {
       items.push({ key: `task:${pendingTaskId}`, kind: "live", taskId: pendingTaskId });
     }
-    return items;
-  }, [messages, hasLive, pendingTaskId]);
+    if (planCards.length === 0) return items;
+    return mergePlanCards(items, planCards, (item) => ({
+      anchorTaskId:
+        item.kind === "live" || (item.kind === "message" && item.message.role === "assistant")
+          ? item.taskId
+          : null,
+      createdAt: item.kind === "message" ? item.message.created_at : "",
+    })).map((entry): ChatRenderItem =>
+      entry.kind === "item"
+        ? entry.item
+        : { key: `plan:${entry.card.id}`, kind: "plan", card: entry.card, taskId: null },
+    );
+  }, [messages, hasLive, pendingTaskId, planCards]);
 
   const firstIndex = renderItems.length > 0 ? firstItemIndex : 0;
   const liveEndKey = renderItems[renderItems.length - 1]?.key ?? null;
@@ -377,6 +399,9 @@ export function ChatMessageList({
             className={cn(CHAT_COLUMN, "py-2")}
             {...(item.key === liveEndKey ? { [LIVE_END_ROW_ATTR]: "" } : {})}
           >
+            {item.kind === "plan" ? (
+              <ChatPlanMessage card={item.card} onOpen={(id) => onOpenPlan?.(id)} />
+            ) : (
             <MessageBubble
               item={item}
               isPending={!!pendingTaskId && item.taskId === pendingTaskId}
@@ -388,6 +413,7 @@ export function ChatMessageList({
               quickActionsPendingMessageId={quickActionsPendingMessageId}
               starterCardsMessageId={starterCardsMessageId}
             />
+            )}
           </div>
         )}
       />
@@ -453,7 +479,7 @@ const MessageBubble = memo(function MessageBubble({
   quickActionsPendingMessageId,
   starterCardsMessageId,
 }: {
-  item: ChatRenderItem;
+  item: Exclude<ChatRenderItem, { kind: "plan" }>;
   isPending: boolean;
   transformContent?: (content: string) => string;
   onQuickAction?: (action: ChatQuickAction) => void | Promise<unknown>;

@@ -2953,6 +2953,8 @@ func (s *TaskService) CancelTaskWithReason(ctx context.Context, taskID pgtype.UU
 	return &result.Task, nil
 }
 
+var ErrChatTaskSteering = errors.New("queued chat task is being delivered to the current turn")
+
 // CancelTaskWithResult cancels a single task and returns any chat-specific
 // cleanup result needed by user-facing callers.
 func (s *TaskService) CancelTaskWithResult(ctx context.Context, taskID pgtype.UUID, opts CancelTaskOptions) (*CancelTaskResult, error) {
@@ -2987,6 +2989,19 @@ func (s *TaskService) CancelTaskWithResult(ctx context.Context, taskID pgtype.UU
 			if _, err := qtx.LockChatSessionForTask(ctx, taskID); err != nil {
 				return fmt.Errorf("lock queued chat session: %w", err)
 			}
+			if opts.QueueAction == "edit" {
+				session, err := qtx.GetChatSession(ctx, opts.ExpectedChatSession)
+				if err != nil {
+					return err
+				}
+				active, err := qtx.QueuedChatTaskHasActiveSupplement(ctx, db.QueuedChatTaskHasActiveSupplementParams{QueuedTaskID: taskID, WorkspaceID: session.WorkspaceID})
+				if err != nil {
+					return err
+				}
+				if active {
+					return ErrChatTaskSteering
+				}
+			}
 			task, err = qtx.CancelQueuedAgentTask(ctx, db.CancelQueuedAgentTaskParams{
 				ID:              taskID,
 				ChatSessionID:   opts.ExpectedChatSession,
@@ -2999,6 +3014,9 @@ func (s *TaskService) CancelTaskWithResult(ctx context.Context, taskID pgtype.UU
 			}
 			if err != nil {
 				return fmt.Errorf("cancel queued task: %w", err)
+			}
+			if err := SettleTerminalTaskState(ctx, qtx, task); err != nil {
+				return err
 			}
 			cancelledChatMessage, err = s.settleQueuedChatInput(ctx, qtx, task, opts.QueueAction)
 			return err
@@ -3306,6 +3324,15 @@ func (s *TaskService) finalizeCancelledChatMessage(ctx context.Context, task db.
 			}
 			restorable = !channelIngested
 		}
+		if restorable {
+			// A delivered supplement is another durable user input. Restoring a
+			// single draft would discard part of that conversation and its files.
+			delivered, err := qtx.ChatInputHasDeliveredSupplement(ctx, db.ChatInputHasDeliveredSupplementParams{InputOwnerID: chatInputOwnerID(task), ChatSessionID: task.ChatSessionID})
+			if err != nil {
+				return fmt.Errorf("check delivered chat guidance: %w", err)
+			}
+			restorable = !delivered
+		}
 		if restorable && task.StartedAt.Valid && opts.ClientSupportsDraftRestore {
 			// A started task's daemon learns of the cancellation by polling
 			// and may still be flushing its transcript tail, so "empty" is
@@ -3471,6 +3498,15 @@ func (s *TaskService) FinalizeDeferredCancelledChat(ctx context.Context, taskID 
 				return fmt.Errorf("check cancelled chat channel provenance: %w", err)
 			}
 			restorable = !channelIngested
+		}
+		if restorable {
+			// A delivered supplement is another durable user input. Restoring a
+			// single draft would discard part of that conversation and its files.
+			delivered, err := qtx.ChatInputHasDeliveredSupplement(ctx, db.ChatInputHasDeliveredSupplementParams{InputOwnerID: chatInputOwnerID(claimed), ChatSessionID: claimed.ChatSessionID})
+			if err != nil {
+				return fmt.Errorf("check delivered chat guidance: %w", err)
+			}
+			restorable = !delivered
 		}
 		if restorable {
 			inputOwnerID := chatInputOwnerID(claimed)
@@ -6259,6 +6295,9 @@ func SettleTerminalTaskState(ctx context.Context, q *db.Queries, tasks ...db.Age
 	}
 	if _, err := q.SettleTerminalTaskSupplements(ctx, taskIDs); err != nil {
 		return fmt.Errorf("settle terminal task supplements: %w", err)
+	}
+	if _, err := q.SettleTerminalChatTaskSupplements(ctx, taskIDs); err != nil {
+		return fmt.Errorf("settle terminal chat task supplements: %w", err)
 	}
 	return SettleDeliveredDelegatedFailureRecoveries(ctx, q, tasks...)
 }

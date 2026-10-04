@@ -353,6 +353,8 @@ type ChatSessionUpdatedPayload = {
   pinned?: boolean;
   status?: "active" | "archived";
   updated_at?: string;
+  /** Present when a queued message's steer receipt changed (QORA-17). */
+  supplement_status?: string;
 };
 
 /**
@@ -379,6 +381,14 @@ export function applyChatSessionUpdatedToCache(
 ): void {
   if (payload.context_changed || payload.plan_mode !== undefined || payload.execution_overrides !== undefined) {
     void qc.invalidateQueries({ queryKey: chatKeys.session(wsId, payload.chat_session_id) });
+  }
+  // A steer receipt moved: the queue row changes state, and a delivered
+  // message is re-parented into the running turn.
+  if (payload.supplement_status !== undefined) {
+    void qc.invalidateQueries({ queryKey: chatKeys.pendingTask(payload.chat_session_id) });
+    if (payload.supplement_status === "delivered") {
+      invalidateChatMessageQueries(qc, payload.chat_session_id);
+    }
   }
   qc.setQueryData<ChatSession[]>(chatKeys.sessions(wsId), (old) => {
     if (!old) return old;

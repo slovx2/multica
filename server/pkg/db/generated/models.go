@@ -502,14 +502,16 @@ type ChatCard struct {
 }
 
 type ChatDirectorySync struct {
-	ID            pgtype.UUID        `json:"id"`
-	ChatSessionID pgtype.UUID        `json:"chat_session_id"`
-	WorkspaceID   pgtype.UUID        `json:"workspace_id"`
-	RuntimeID     pgtype.UUID        `json:"runtime_id"`
-	ResourceRef   []byte             `json:"resource_ref"`
-	Status        string             `json:"status"`
-	Result        []byte             `json:"result"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	ID          pgtype.UUID        `json:"id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	RuntimeID   pgtype.UUID        `json:"runtime_id"`
+	ResourceRef []byte             `json:"resource_ref"`
+	Status      string             `json:"status"`
+	Result      []byte             `json:"result"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ProjectID   pgtype.UUID        `json:"project_id"`
+	RequesterID pgtype.UUID        `json:"requester_id"`
+	Force       bool               `json:"force"`
 }
 
 type ChatDraftRestore struct {
@@ -571,6 +573,22 @@ type ChatSession struct {
 	PlanMode            bool               `json:"plan_mode"`
 	ExecutionOverrides  []byte             `json:"execution_overrides"`
 	ContextState        []byte             `json:"context_state"`
+}
+
+type ChatTaskSupplement struct {
+	TaskID          pgtype.UUID        `json:"task_id"`
+	QueuedTaskID    pgtype.UUID        `json:"queued_task_id"`
+	ChatMessageID   pgtype.UUID        `json:"chat_message_id"`
+	ChatSessionID   pgtype.UUID        `json:"chat_session_id"`
+	WorkspaceID     pgtype.UUID        `json:"workspace_id"`
+	AuthorID        pgtype.UUID        `json:"author_id"`
+	ClientRequestID pgtype.UUID        `json:"client_request_id"`
+	Status          string             `json:"status"`
+	FailureReason   pgtype.Text        `json:"failure_reason"`
+	AttemptCount    int32              `json:"attempt_count"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	DeliveredAt     pgtype.Timestamptz `json:"delivered_at"`
 }
 
 type ClientUsageDaily struct {

@@ -2,7 +2,15 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId } from "react";
-import { Check, ListChecks, SlidersHorizontal } from "lucide-react";
+import {
+  Brain,
+  Check,
+  Eraser,
+  Gauge,
+  ListChecks,
+  Minimize2,
+  SlidersHorizontal,
+} from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
@@ -22,9 +30,14 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "@multica/ui/components/ui/dropdown-menu";
+import { cn } from "@multica/ui/lib/utils";
 import { ClearablePillButton } from "../../common/pill-button";
 import { pickModelEntry } from "../../agents/components/inspector/thinking-prop-row";
 import { useT } from "../../i18n";
+import {
+  CHAT_MENU_ITEM_CLASS,
+  CHAT_SUBMENU_CONTENT_CLASS,
+} from "./chat-add-menu";
 
 interface SettingsProps {
   sessionId?: string | null;
@@ -132,6 +145,7 @@ export function ChatSettingsMenu({
     {
       field: "thinking_level" as const,
       label: t(($) => $.execution.thinking),
+      icon: Brain,
       options: levels.map((level) => ({
         value: level.value,
         label: level.label,
@@ -140,6 +154,7 @@ export function ChatSettingsMenu({
     {
       field: "service_tier" as const,
       label: t(($) => $.execution.tier),
+      icon: Gauge,
       options: tiers.map((tier) => ({ value: tier.id, label: tier.name })),
     },
   ];
@@ -148,14 +163,16 @@ export function ChatSettingsMenu({
       {onCompact && (
         <>
           <DropdownMenuItem
+            className={CHAT_MENU_ITEM_CLASS}
             disabled={disabled || !settings.sessionId || !settings.supportsPlan}
             aria-describedby={!settings.supportsPlan ? compactUnsupportedId : undefined}
             onClick={onCompact}
           >
+            <Minimize2 />
             {t(($) => $.context.compact)}
           </DropdownMenuItem>
           {!settings.supportsPlan && (
-            <p id={compactUnsupportedId} className="max-w-64 px-2 py-1 text-caption text-muted-foreground">
+            <p id={compactUnsupportedId} className="max-w-64 px-2 py-1 text-caption text-muted-foreground pointer-coarse:px-3">
               {t(($) => $.context.unsupported)}
             </p>
           )}
@@ -163,6 +180,7 @@ export function ChatSettingsMenu({
       )}
       {includePlan && (
         <DropdownMenuItem
+          className={CHAT_MENU_ITEM_CLASS}
           disabled={disabled || (!plan && !settings.supportsPlan)}
           onClick={() => setPlan(!plan)}
         >
@@ -173,21 +191,26 @@ export function ChatSettingsMenu({
       )}
       {choices
         .filter((choice) => choice.options.length > 0)
-        .map(({ field, label, options }) => (
+        .map(({ field, label, icon: Icon, options }) => (
           <DropdownMenuSub key={field}>
             <DropdownMenuSubTrigger
               disabled={disabled}
-              className="data-disabled:pointer-events-none data-disabled:opacity-50"
+              className={cn(
+                CHAT_MENU_ITEM_CLASS,
+                "data-disabled:pointer-events-none data-disabled:opacity-50",
+              )}
             >
+              <Icon />
               {label}
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
+            <DropdownMenuSubContent className={CHAT_SUBMENU_CONTENT_CLASS}>
               {[
                 { value: "", label: t(($) => $.execution.inherit) },
                 ...options,
               ].map((option) => (
                 <DropdownMenuItem
                   key={option.value}
+                  className={CHAT_MENU_ITEM_CLASS}
                   onClick={() =>
                     setOverrides({ ...overrides, [field]: option.value })
                   }
@@ -202,7 +225,12 @@ export function ChatSettingsMenu({
           </DropdownMenuSub>
         ))}
       {(overrides.thinking_level || overrides.service_tier) && (
-        <DropdownMenuItem disabled={disabled} onClick={() => setOverrides({})}>
+        <DropdownMenuItem
+          className={CHAT_MENU_ITEM_CLASS}
+          disabled={disabled}
+          onClick={() => setOverrides({})}
+        >
+          <Eraser />
           {t(($) => $.execution.clear)}
         </DropdownMenuItem>
       )}

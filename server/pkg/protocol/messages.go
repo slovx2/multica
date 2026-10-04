@@ -425,6 +425,7 @@ type DaemonHeartbeatRequestPayload struct {
 // and re-registers; without it the dead UUID would keep heartbeating until the
 // daemon process restarts.
 type DaemonHeartbeatPendingDirectorySync struct {
+	Force       bool            `json:"force"`
 	ID          string          `json:"id"`
 	ResourceRef json.RawMessage `json:"resource_ref"`
 }

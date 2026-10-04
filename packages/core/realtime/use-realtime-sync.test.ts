@@ -322,6 +322,31 @@ describe("invalidateChatMessageQueries", () => {
     }
   });
 
+  it("refreshes the queue on a steer receipt and the messages once delivered", () => {
+    const qc = createQueryClient();
+    const invalidate = vi.spyOn(qc, "invalidateQueries");
+    applyChatSessionUpdatedToCache(qc, "ws-steer", { chat_session_id: sessionId, supplement_status: "delivering" });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: chatKeys.pendingTask(sessionId) });
+    expect(invalidate).not.toHaveBeenCalledWith(expect.objectContaining({ queryKey: chatKeys.messages(sessionId) }));
+    invalidate.mockClear();
+    applyChatSessionUpdatedToCache(qc, "ws-steer", { chat_session_id: sessionId, supplement_status: "delivered" });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: chatKeys.pendingTask(sessionId) });
+    expect(invalidate).toHaveBeenCalledWith(expect.objectContaining({ queryKey: chatKeys.messages(sessionId) }));
+    qc.clear();
+  });
+
+  it("marks the pending queue and paged messages stale after a delivered steer", () => {
+    const qc = createQueryClient();
+    const pending = chatKeys.pendingTask(sessionId);
+    const page = chatKeys.messagesPage(sessionId);
+    qc.setQueryData(pending, { task_id: "running", queued_tasks: [{ task_id: "queued", supplement_status: "pending" }] });
+    qc.setQueryData(page, { pages: [{ messages: [{ id: "m", task_id: "queued" }] }], pageParams: [null] });
+    applyChatSessionUpdatedToCache(qc, "ws-steer", { chat_session_id: sessionId, supplement_status: "delivered" });
+    expect(qc.getQueryState(pending)?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(page)?.isInvalidated).toBe(true);
+    qc.clear();
+  });
+
   it("invalidates both legacy and paged chat message caches", () => {
     const qc = createQueryClient();
     const invalidate = vi.spyOn(qc, "invalidateQueries");

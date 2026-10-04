@@ -29,7 +29,7 @@ func TestNativeChatContextFixtures(t *testing.T) {
 				events = append(events, e)
 			}
 		}
-		if got := tracker.usage(); got == nil || got.Used != 1629 || got.Window != 1000000 {
+		if got := tracker.usage(); got == nil || got.Used != 1629 || got.Window != 1000000 || got.Model != "claude-opus-5-5[1m]" {
 			t.Fatalf("usage %+v", got)
 		}
 		if len(events) != 2 || events[0].Status != "started" || events[1].Status != "completed" || *events[1].PreTokens != 22657 {
@@ -191,6 +191,56 @@ func TestClaudeCompactWindowUsesSessionModelThenPreviousNativeWindow(t *testing.
 			}
 			if usage == nil || usage.Window != tc.want || usage.Used != 1629 || usage.Model != "current" {
 				t.Fatalf("usage %+v", usage)
+			}
+		})
+	}
+}
+
+func TestClaudeContextModelAliases(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		init   string
+		models map[string]claudeResultModelUsage
+		want   int64
+	}{
+		{"init keeps suffix and exact key wins", "claude-opus-5-5[1m]", map[string]claudeResultModelUsage{
+			"claude-opus-5-5[1m]": {ContextWindow: 1000000, CanonicalModel: "claude-opus-5-5"},
+			"claude-opus-5-5":     {ContextWindow: 200000},
+		}, 1000000},
+		{"canonical alias without init", "", map[string]claudeResultModelUsage{
+			"native-alias": {ContextWindow: 1000000, CanonicalModel: "claude-opus-5-5"},
+		}, 1000000},
+		{"key suffix without init", "", map[string]claudeResultModelUsage{
+			"claude-opus-5-5[1m]": {ContextWindow: 1000000},
+		}, 1000000},
+		{"different model cannot supply window", "", map[string]claudeResultModelUsage{
+			"claude-sonnet-5[1m]": {ContextWindow: 1000000},
+		}, 0},
+		{"ambiguous aliases cannot supply window", "", map[string]claudeResultModelUsage{
+			"claude-opus-5-5[1m]":   {ContextWindow: 1000000},
+			"claude-opus-5-5[200k]": {ContextWindow: 200000},
+		}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var tracker claudeContextTracker
+			if tc.init != "" {
+				tracker.observe(claudeSDKMessage{Type: "system", Subtype: "init", Model: tc.init})
+			}
+			tracker.observe(claudeSDKMessage{Type: "assistant", Message: json.RawMessage(`{"model":"claude-opus-5-5","usage":{"input_tokens":29,"cache_read_input_tokens":1000,"cache_creation_input_tokens":600}}`)})
+			tracker.observe(claudeSDKMessage{Type: "result", ModelUsage: tc.models})
+			got := tracker.usage()
+			if tc.want == 0 {
+				if got != nil {
+					t.Fatalf("inferred window: %+v", got)
+				}
+				return
+			}
+			wantModel := tc.init
+			if wantModel == "" {
+				wantModel = "claude-opus-5-5"
+			}
+			if got == nil || got.Used != 1629 || got.Window != tc.want || got.Model != wantModel {
+				t.Fatalf("usage = %+v, want window %d and model %q", got, tc.want, wantModel)
 			}
 		})
 	}

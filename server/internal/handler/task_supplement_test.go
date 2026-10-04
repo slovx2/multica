@@ -213,18 +213,40 @@ func TestTaskSupplementCapabilityDoesNotBreakNonIssueStarts(t *testing.T) {
 		t.Skip("database not available")
 	}
 	for _, provider := range []string{"codex", "claude", "grok"} {
-		t.Run(provider, func(t *testing.T) {
-			runtimeID := dbfx.Runtime(t, "supplement-no-issue", testutil.Cols{"provider": provider})
-			agentID := dbfx.Agent(t, "Supplement no issue", runtimeID)
-			taskID := dbfx.Task(t, agentID, testutil.Cols{"runtime_id": runtimeID, "issue_id": nil, "status": "dispatched"})
-			started, err := testHandler.TaskService.StartTask(t.Context(), parseUUID(taskID), true)
-			if err != nil || started.Status != "running" {
-				t.Fatalf("non-issue start = %#v: %v", started, err)
-			}
-			if n := dbfx.Count(t, `SELECT count(*) FROM task_supplement_capability WHERE task_id = $1`, taskID); n != 0 {
-				t.Fatalf("capability rows = %d, want 0", n)
-			}
-		})
+		for _, chat := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/chat=%v", provider, chat), func(t *testing.T) {
+				runtimeID := dbfx.Runtime(t, "supplement-no-issue", testutil.Cols{"provider": provider})
+				agentID := dbfx.Agent(t, "Supplement no issue", runtimeID)
+				fields := testutil.Cols{"runtime_id": runtimeID, "issue_id": nil, "status": "dispatched"}
+				if chat {
+					fields["chat_session_id"] = dbfx.ChatSession(t, agentID)
+				}
+				taskID := dbfx.Task(t, agentID, fields)
+				dbfx.Cleanup(t, `DELETE FROM task_supplement_capability WHERE task_id=$1`, taskID)
+				var started AgentTaskResponse
+				if chat {
+					req := withURLParam(newDaemonTokenRequest(http.MethodPost, "/start", map[string]any{"capabilities": []string{protocol.DaemonCapabilityTaskSupplementV1}}, testWorkspaceID, "start-test"), "taskId", taskID)
+					testutil.Call(t, testHandler.StartTask, req).Want(http.StatusOK).JSON(&started)
+				} else {
+					task, err := testHandler.TaskService.StartTask(t.Context(), parseUUID(taskID), true)
+					if err != nil {
+						t.Fatal(err)
+					}
+					started.Status = task.Status
+				}
+				want := ""
+				if chat {
+					want = protocol.DaemonCapabilityTaskSupplementV1
+				}
+				if started.Status != "running" || started.SupplementCapability != want {
+					t.Fatalf("non-issue start = %+v; want capability %q", started, want)
+				}
+				n := dbfx.Count(t, `SELECT count(*) FROM task_supplement_capability WHERE task_id=$1`, taskID)
+				if (n == 1) != chat {
+					t.Fatalf("capability rows=%d, chat=%v", n, chat)
+				}
+			})
+		}
 	}
 }
 
