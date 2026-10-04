@@ -22,6 +22,8 @@ files:
   # because the first arch writes into dist/ mid-run before the second is
   # packaged.
   - "!dist/**"
+  # The local skill must remain accessible outside app.asar for user symlinks.
+  - "!resources/skills/**"
 # Ship the license and attribution notices inside the packaged app, so the
 # NOTICE obligations travel with the installer rather than only the git repo.
 extraResources:
@@ -29,6 +31,9 @@ extraResources:
     to: LICENSE
   - from: ../../NOTICE
     to: NOTICE
+  - from: resources/skills/multica-platform-local
+    to: skills/multica-platform-local
+afterPack: ./scripts/bundle-platform-skill.mjs
 protocols:
   - name: Multica
     schemes:

@@ -40,6 +40,7 @@ function run(command, args, { shell = false, env = process.env } = {}) {
 }
 
 const node = process.execPath;
+run(node, [join(here, "bundle-platform-skill.mjs")]);
 run(node, [join(here, "bundle-cli.mjs")]);
 run(node, [join(here, "brand-dev-electron.mjs")]);
 
