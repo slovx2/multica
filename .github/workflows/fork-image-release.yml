@@ -1,0 +1,164 @@
+name: Fork Image and CLI Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Reviewed commit, branch, or tag to build"
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+# Serialize releases even when two input refs resolve to the same commit.
+concurrency:
+  group: fork-image-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'slovx2/multica'
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.meta.outputs.sha }}
+      tag: ${{ steps.meta.outputs.tag }}
+      date: ${{ steps.meta.outputs.date }}
+    steps:
+      - name: Checkout workflow tooling
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Test release metadata
+        run: bash scripts/fork-release-meta.test.sh
+
+      # Keep tooling separate so older source commits can also be packaged.
+      - name: Resolve requested source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          path: source
+          persist-credentials: false
+
+      - name: Compute release metadata
+        id: meta
+        run: bash scripts/fork-release-meta.sh source >> "$GITHUB_OUTPUT"
+
+  images:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: multica-backend
+            dockerfile: Dockerfile
+          - image: multica-web
+            dockerfile: Dockerfile.web
+    steps:
+      - name: Checkout resolved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          pull: true
+          push: true
+          platforms: linux/amd64
+          tags: ghcr.io/slovx2/${{ matrix.image }}:${{ needs.prepare.outputs.tag }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/slovx2/multica
+            org.opencontainers.image.revision=${{ needs.prepare.outputs.sha }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.tag }}
+          cache-from: type=gha,scope=fork-${{ matrix.image }}-linux-amd64
+          cache-to: type=gha,mode=max,scope=fork-${{ matrix.image }}-linux-amd64
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.tag }}
+            COMMIT=${{ needs.prepare.outputs.sha }}
+            DATE=${{ needs.prepare.outputs.date }}
+            REMOTE_API_URL=http://backend:8080
+            NEXT_PUBLIC_APP_VERSION=${{ needs.prepare.outputs.tag }}
+
+      - name: Record image
+        env:
+          IMAGE: ghcr.io/slovx2/${{ matrix.image }}:${{ needs.prepare.outputs.tag }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          printf 'Image: `%s`\n\nDigest: `%s`\n\nCommit: `%s`\n' \
+            "$IMAGE" "$DIGEST" "$SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+  cli:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout resolved source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          check-latest: true
+          cache-dependency-path: server/go.sum
+
+      - name: Build and verify CLI
+        working-directory: server
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: amd64
+          VERSION: ${{ needs.prepare.outputs.tag }}
+          COMMIT: ${{ needs.prepare.outputs.sha }}
+          BUILD_DATE: ${{ needs.prepare.outputs.date }}
+        run: |
+          mkdir -p ../dist
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=$VERSION -X main.commit=$COMMIT -X main.date=$BUILD_DATE" \
+            -o ../dist/multica ./cmd/multica
+          ../dist/multica version | tee ../dist/version.txt
+          grep -Fq "multica $VERSION (commit: $COMMIT," ../dist/version.txt
+
+      - name: Package CLI
+        env:
+          VERSION: ${{ needs.prepare.outputs.tag }}
+        run: |
+          cp LICENSE NOTICE dist/
+          cd dist
+          tar -czf "multica-cli-$VERSION-linux-amd64.tar.gz" multica version.txt LICENSE NOTICE
+          sha256sum ./*.tar.gz > SHA256SUMS
+          cat version.txt SHA256SUMS >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload CLI
+        uses: actions/upload-artifact@v4
+        with:
+          name: multica-cli-${{ needs.prepare.outputs.tag }}-linux-amd64
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
