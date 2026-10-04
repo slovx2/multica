@@ -53,8 +53,9 @@
     "steer_failed_toast": "Couldn't steer ({{reason}}). The message stays in the queue.",
     "steer_failed_reason": {
       "turn_ended": "the reply already ended",
-      "rejected": "the agent didn't accept it",
-      "timeout": "delivery timed out"
+      "timeout": "delivery timed out",
+      "provider_rejected": "the agent didn't accept it",
+      "turn_not_started": "the reply hasn't started yet"
     }
   },
   "message_list": {

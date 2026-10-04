@@ -53,8 +53,9 @@
     "steer_failed_toast": "Réorientation impossible ({{reason}}). Le message reste dans la file d'attente.",
     "steer_failed_reason": {
       "turn_ended": "la réponse était déjà terminée",
-      "rejected": "l'agent ne l'a pas acceptée",
-      "timeout": "délai de livraison dépassé"
+      "timeout": "délai de livraison dépassé",
+      "provider_rejected": "l'agent ne l'a pas acceptée",
+      "turn_not_started": "la réponse n'a pas encore commencé"
     }
   },
   "message_list": {

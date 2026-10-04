@@ -226,6 +226,17 @@ describe("ChatQueue steering", () => {
     expect(screen.getAllByRole("button", { name: "Steer" })).toHaveLength(2);
   });
 
+  it.each([
+    ["provider_rejected", "the agent didn't accept it"],
+    ["turn_not_started", "the reply hasn't started yet"],
+    ["timeout", "delivery timed out"],
+  ])("names the backend failure reason %s", (reason, label) => {
+    toastError.mockClear();
+    const view = renderQueue("running", false, undefined, { receipt: { supplement_status: "delivering" } });
+    view.rerenderWith({ supplement_status: "failed", supplement_failure_reason: reason });
+    expect(toastError).toHaveBeenCalledWith(`Couldn't steer (${label}). The message stays in the queue.`);
+  });
+
   it("does not replay a failure that was already settled when the queue loaded", () => {
     toastError.mockClear();
     renderQueue("running", false, undefined, {

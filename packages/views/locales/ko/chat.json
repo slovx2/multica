@@ -51,8 +51,9 @@
     "steer_failed_toast": "지시하지 못했습니다({{reason}}). 메시지는 대기열에 남아 있습니다.",
     "steer_failed_reason": {
       "turn_ended": "답변이 이미 끝났습니다",
-      "rejected": "에이전트가 받지 않았습니다",
-      "timeout": "전달 시간이 초과되었습니다"
+      "timeout": "전달 시간이 초과되었습니다",
+      "provider_rejected": "에이전트가 받지 않았습니다",
+      "turn_not_started": "답변이 아직 시작되지 않았습니다"
     }
   },
   "message_list": {

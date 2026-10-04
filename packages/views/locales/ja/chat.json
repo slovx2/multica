@@ -51,8 +51,9 @@
     "steer_failed_toast": "指示できませんでした（{{reason}}）。メッセージはキューに残っています。",
     "steer_failed_reason": {
       "turn_ended": "返信はすでに終了しました",
-      "rejected": "エージェントが受け付けませんでした",
-      "timeout": "送信がタイムアウトしました"
+      "timeout": "送信がタイムアウトしました",
+      "provider_rejected": "エージェントが受け付けませんでした",
+      "turn_not_started": "返信がまだ開始されていません"
     }
   },
   "message_list": {

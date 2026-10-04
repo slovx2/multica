@@ -51,8 +51,9 @@
     "steer_failed_toast": "引导失败（{{reason}}），消息仍在队列中。",
     "steer_failed_reason": {
       "turn_ended": "本轮回复已结束",
-      "rejected": "智能体未接受",
-      "timeout": "投递超时"
+      "timeout": "投递超时",
+      "provider_rejected": "智能体未接受",
+      "turn_not_started": "本轮回复尚未开始"
     }
   },
   "message_list": {

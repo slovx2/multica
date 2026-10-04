@@ -29,7 +29,10 @@ export function useSteerFailedMessage() {
   return useCallback(
     (reason: string | undefined) => {
       const label =
-        reason === "turn_ended" || reason === "rejected" || reason === "timeout"
+        reason === "turn_ended" ||
+        reason === "turn_not_started" ||
+        reason === "provider_rejected" ||
+        reason === "timeout"
           ? t(($) => $.queue.steer_failed_reason[reason])
           : reason || t(($) => $.queue.action_failed_toast);
       return t(($) => $.queue.steer_failed_toast, { reason: label });

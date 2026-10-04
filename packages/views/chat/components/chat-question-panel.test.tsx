@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nProvider } from "@multica/core/i18n/react";
 import { api } from "@multica/core/api";
@@ -154,5 +155,51 @@ describe("ChatQuestionPanel", () => {
   it("keeps secret replies masked", () => {
     mount(card([question("q0", "Token", { options: [], selection_mode: "none", free_text: { allowed: true, secret: true } })]));
     expect(screen.getByLabelText("Other: write your own reply")).toHaveAttribute("type", "password");
+  });
+
+  // Cross-review regressions (QORA-17).
+  it("keeps keyboard focus in the panel across auto-advance", async () => {
+    const user = userEvent.setup();
+    mount(THREE);
+    screen.getByRole("radio", { name: /Scope A/ }).focus();
+    await user.keyboard("1");
+    await screen.findByText("Tests?");
+    await user.keyboard("2");
+    expect(screen.getByRole("checkbox", { name: /Tests B/ })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("drops a pending single-choice advance once the reader types their own reply", async () => {
+    mount(card([question("only", "Branch")]));
+    fireEvent.click(screen.getByRole("radio", { name: /Branch A/ }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "custom branch" } });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 250)); });
+    expect(api.sendChatMessage).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Submit answers" }));
+    await waitFor(() => expect(lastDecision()).toMatchObject({
+      answers: [{ question_id: "only", selected_option_ids: [], text: "custom branch", skipped: false }],
+    }));
+  });
+
+  it("drops a pending advance when the reader navigates away", async () => {
+    mount(THREE);
+    fireEvent.click(screen.getByRole("radio", { name: /Scope A/ }));
+    await screen.findByText("Tests?");
+    fireEvent.click(screen.getByRole("button", { name: "Scope" }));
+    fireEvent.click(screen.getByRole("radio", { name: /Scope B/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 250)); });
+    fireEvent.click(screen.getByRole("button", { name: "Show questions" }));
+    expect(screen.getByText("Scope?")).toBeInTheDocument();
+  });
+
+  it("advances a multi-select question with Enter instead of toggling", async () => {
+    const user = userEvent.setup();
+    mount(card([question("q0", "Tests", { selection_mode: "multiple" }), question("q1", "Deploy")]));
+    const option = screen.getByRole("checkbox", { name: /Tests A/ });
+    await user.click(option);
+    await user.keyboard("{Enter}");
+    expect(screen.getByText("Deploy?")).toBeInTheDocument();
+    await user.keyboard("2");
+    expect(screen.getByRole("radio", { name: /Deploy B/ })).toHaveAttribute("aria-checked", "true");
   });
 });

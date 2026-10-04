@@ -65,11 +65,30 @@ export function ChatQuestionPanel({
   const submitting = useRef(false);
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const panelRef = useRef<HTMLElement | null>(null);
+  // Latest drafts for the deferred auto-advance, which must act on what the
+  // reader has now, not on what they had when they clicked.
+  const draftsRef = useRef(drafts);
+  const shownStep = useRef(step);
   const inactive = !!disabled || decision.isPending || decision.isSuccess;
 
   useEffect(() => () => {
     if (advanceTimer.current) clearTimeout(advanceTimer.current);
   }, []);
+
+  // Moving between steps unmounts the focused row. Keep keyboard focus inside
+  // the panel (unless it was elsewhere, e.g. the composer) so 1-9 / Enter keep
+  // working on the next question.
+  useEffect(() => {
+    if (shownStep.current === step) return;
+    shownStep.current = step;
+    const panel = panelRef.current;
+    const active = document.activeElement;
+    if (!panel || (active && active !== document.body && !panel.contains(active))) return;
+    panel
+      .querySelector<HTMLElement>('[role="radio"], [role="checkbox"], input, [data-step-primary]')
+      ?.focus();
+  }, [step]);
 
   if (total === 0) return null;
 
@@ -79,6 +98,7 @@ export function ChatQuestionPanel({
 
   function send(action: "answer" | "dismiss", next: Record<string, Draft>) {
     if (inactive || submitting.current) return;
+    cancelAutoAdvance();
     submitting.current = true;
     decision.mutate(
       action === "dismiss"
@@ -101,6 +121,22 @@ export function ChatQuestionPanel({
     );
   }
 
+  function updateDrafts(next: Record<string, Draft>) {
+    draftsRef.current = next;
+    setDrafts(next);
+  }
+
+  function cancelAutoAdvance() {
+    if (advanceTimer.current) clearTimeout(advanceTimer.current);
+    advanceTimer.current = null;
+    setFlashOption(null);
+  }
+
+  function goTo(index: number) {
+    cancelAutoAdvance();
+    setStep(index);
+  }
+
   function advance(next: Record<string, Draft>) {
     if (step < total - 1) setStep(step + 1);
     else if (total > 1) setStep(total);
@@ -109,11 +145,13 @@ export function ChatQuestionPanel({
 
   function commit(patch: Partial<Draft>, move: boolean) {
     if (!question || inactive) return;
+    // Any edit supersedes a pending single-choice auto-advance.
+    cancelAutoAdvance();
     const next = {
       ...drafts,
       [question.id]: { ...draft, ...patch, ...(move ? { done: true } : {}) },
     };
-    setDrafts(next);
+    updateDrafts(next);
     if (move) advance(next);
     return next;
   }
@@ -130,17 +168,18 @@ export function ChatQuestionPanel({
       return;
     }
     // Single choice records and moves on; a typed "other" reply is replaced.
-    const next = commit({ selected: [option.id], text: "", skipped: false }, false);
-    if (!next) return;
+    if (!commit({ selected: [option.id], text: "", skipped: false }, false)) return;
     setFlashOption(option.id);
-    if (advanceTimer.current) clearTimeout(advanceTimer.current);
     advanceTimer.current = setTimeout(() => {
+      advanceTimer.current = null;
       setFlashOption(null);
-      setDrafts((current) => {
-        const value = current[question.id];
-        return value ? { ...current, [question.id]: { ...value, done: true } } : current;
-      });
-      advance({ ...next, [question.id]: { ...next[question.id]!, done: true } });
+      const current = draftsRef.current;
+      const value = current[question.id];
+      // Only the choice that scheduled this may move on.
+      if (!value || value.selected.length !== 1 || value.selected[0] !== option.id || value.text.trim()) return;
+      const next = { ...current, [question.id]: { ...value, done: true } };
+      updateDrafts(next);
+      advance(next);
     }, AUTO_ADVANCE_MS);
   }
 
@@ -162,6 +201,7 @@ export function ChatQuestionPanel({
   function onKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
+      cancelAutoAdvance();
       setCollapsed(true);
       return;
     }
@@ -172,6 +212,16 @@ export function ChatQuestionPanel({
         event.preventDefault();
         goNext();
       }
+      return;
+    }
+    // Enter on a checkbox row confirms the selection instead of toggling it.
+    if (
+      event.key === "Enter" &&
+      event.target instanceof HTMLElement &&
+      event.target.getAttribute("role") === "checkbox"
+    ) {
+      event.preventDefault();
+      goNext();
       return;
     }
     if (question && /^[1-9]$/.test(event.key)) {
@@ -194,10 +244,10 @@ export function ChatQuestionPanel({
     }
     if (event.key === "ArrowLeft" && step > 0) {
       event.preventDefault();
-      setStep(step - 1);
+      goTo(step - 1);
     } else if (event.key === "ArrowRight" && step < total && canVisit(step + 1)) {
       event.preventDefault();
-      setStep(step + 1);
+      goTo(step + 1);
     }
   }
 
@@ -225,6 +275,7 @@ export function ChatQuestionPanel({
   return (
     <div className={cn(CHAT_GUTTER, "pb-2")}>
       <section
+        ref={panelRef}
         data-slot="chat-question-panel"
         aria-label={t(($) => $.questions.label)}
         onKeyDown={onKeyDown}
@@ -256,7 +307,7 @@ export function ChatQuestionPanel({
                         aria-current={current ? "step" : undefined}
                         disabled={inactive || !canVisit(index)}
                         title={answered ? answerSummary(q, value) : skipped ? t(($) => $.questions.skipped) : undefined}
-                        onClick={() => setStep(index)}
+                        onClick={() => goTo(index)}
                         className={cn(
                           "inline-flex h-6 max-w-40 items-center gap-1 rounded-full border px-2 text-caption",
                           current
@@ -292,7 +343,10 @@ export function ChatQuestionPanel({
             className="shrink-0 text-muted-foreground"
             aria-label={t(($) => $.questions.collapse)}
             title={t(($) => $.questions.collapse)}
-            onClick={() => setCollapsed(true)}
+            onClick={() => {
+              cancelAutoAdvance();
+              setCollapsed(true);
+            }}
           >
             <X aria-hidden="true" />
           </Button>
@@ -325,7 +379,7 @@ export function ChatQuestionPanel({
                     <button
                       type="button"
                       disabled={inactive}
-                      onClick={() => setStep(index)}
+                      onClick={() => goTo(index)}
                       className="flex w-full min-h-10 flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left hover:bg-accent pointer-coarse:min-h-11"
                     >
                       <span className="text-caption text-muted-foreground">{q.text}</span>
@@ -346,17 +400,17 @@ export function ChatQuestionPanel({
         <footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-surface-border px-3 py-2">
           {reviewing ? (
             <>
-              <Button variant="outline" size="sm" disabled={inactive} onClick={() => setStep(total - 1)}>
+              <Button variant="outline" size="sm" disabled={inactive} onClick={() => goTo(total - 1)}>
                 {t(($) => $.questions.back)}
               </Button>
-              <Button size="sm" disabled={inactive} aria-busy={decision.isPending} onClick={() => send("answer", drafts)}>
+              <Button data-step-primary size="sm" disabled={inactive} aria-busy={decision.isPending} onClick={() => send("answer", drafts)}>
                 {t(($) => $.questions.submit)}
               </Button>
             </>
           ) : (
             <>
               {step > 0 && (
-                <Button variant="ghost" size="sm" className="mr-auto" disabled={inactive} onClick={() => setStep(step - 1)}>
+                <Button variant="ghost" size="sm" className="mr-auto" disabled={inactive} onClick={() => goTo(step - 1)}>
                   {t(($) => $.questions.prev)}
                 </Button>
               )}
