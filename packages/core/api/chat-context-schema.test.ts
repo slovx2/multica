@@ -25,9 +25,20 @@ describe("chat context wire contracts", () => {
   });
 
   it("returns the completed sync's nested JSON result", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(contracts.sync))));
-    await expect(new ApiClient("https://api.example.test").getChatDirectorySync("session", "sync-id"))
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(contracts.sync)));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(new ApiClient("https://api.example.test").getProjectDirectorySync("project", "sync-id"))
       .resolves.toMatchObject({ status: "completed", result: { status: "updated", updated: 3 } });
+    expect(fetchMock.mock.calls[0]![0]).toBe("https://api.example.test/api/projects/project/directory-sync/sync-id");
+  });
+
+  it("starts a project sync for an agent and forwards force", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "sync-id" }), { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(new ApiClient("https://api.example.test").syncProjectDirectory("project", { agent_id: "agent", force: true }))
+      .resolves.toEqual({ id: "sync-id" });
+    expect(fetchMock.mock.calls[0]![0]).toBe("https://api.example.test/api/projects/project/directory-sync");
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({ agent_id: "agent", force: true });
   });
 
   it.each([{}, { task_id: "task-id", created_at: "" }])("rejects malformed action responses", async (body) => {

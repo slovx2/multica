@@ -1,4 +1,4 @@
-import type { ChatMessage, ChatPendingTask, ChatQueuedTask } from "../types/chat";
+import type { ChatMessage, ChatPendingTask, ChatQueuedTask, ChatSupplementStatus } from "../types/chat";
 
 const EMPTY_PENDING_TASK: ChatPendingTask = {};
 
@@ -168,6 +168,23 @@ export function prioritizePendingChatTask(
   return {
     ...current,
     queued_tasks: [selected, ...queue.filter((task) => task.task_id !== taskID)],
+  };
+}
+
+/** Patch one queued task's steer receipt in the pending snapshot. */
+export function setQueuedChatTaskSteer(
+  current: ChatPendingTask | undefined,
+  taskID: string,
+  status: ChatSupplementStatus,
+): ChatPendingTask | undefined {
+  if (!current?.queued_tasks?.some((task) => task.task_id === taskID)) return current;
+  return {
+    ...current,
+    queued_tasks: current.queued_tasks.map((task) =>
+      task.task_id === taskID
+        ? { ...task, supplement_status: status, supplement_failure_reason: undefined }
+        : task
+    ),
   };
 }
 

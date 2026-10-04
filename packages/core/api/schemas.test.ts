@@ -31,6 +31,7 @@ import {
   ChatSessionListSchema,
   ChatSessionSchema,
   PrioritizeQueuedChatTaskResponseSchema,
+  SteerQueuedChatTaskResponseSchema,
   CreateFeedbackResponseSchema,
   DuplicateIssueErrorBodySchema,
   EMPTY_CHAT_DRAFT_RESTORES,
@@ -873,8 +874,39 @@ describe("ChatPendingTaskSchema", () => {
 
     expect(parsed).toEqual({
       task_id: "task-active",
+      steerable: false,
       queued_tasks: [],
     });
+  });
+
+  it("defaults steerable to false when absent or malformed", () => {
+    expect(ChatPendingTaskSchema.parse({ task_id: "t" }).steerable).toBe(false);
+    expect(ChatPendingTaskSchema.parse({ task_id: "t", steerable: "yes" }).steerable).toBe(false);
+    expect(ChatPendingTaskSchema.parse({ task_id: "t", steerable: true }).steerable).toBe(true);
+  });
+
+  it("parses a queued row's steer receipt and drops a malformed one without losing the row", () => {
+    const parsed = ChatPendingTaskSchema.parse({
+      task_id: "task-active",
+      queued_tasks: [
+        { task_id: "a", supplement_status: "failed", supplement_failure_reason: "turn_ended" },
+        { task_id: "b", supplement_status: "future", supplement_failure_reason: 3 },
+      ],
+    });
+    expect(parsed.queued_tasks?.[0]).toMatchObject({ supplement_status: "failed", supplement_failure_reason: "turn_ended" });
+    expect(parsed.queued_tasks?.[1]?.task_id).toBe("b");
+    expect(parsed.queued_tasks?.[1]?.supplement_status).toBeUndefined();
+    expect(parsed.queued_tasks?.[1]?.supplement_failure_reason).toBeUndefined();
+  });
+});
+
+describe("SteerQueuedChatTaskResponseSchema", () => {
+  it("requires the queued task id and a known status", () => {
+    expect(SteerQueuedChatTaskResponseSchema.parse({ task_id: "t", status: "pending" })).toEqual({
+      task_id: "t", active_task_id: "", message_id: "", status: "pending",
+    });
+    expect(SteerQueuedChatTaskResponseSchema.safeParse({ task_id: "t", status: "future" }).success).toBe(false);
+    expect(SteerQueuedChatTaskResponseSchema.safeParse({ status: "pending" }).success).toBe(false);
   });
 });
 

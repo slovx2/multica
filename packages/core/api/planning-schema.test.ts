@@ -21,4 +21,17 @@ describe("planning response boundaries", () => {
     expect(chatCardsSchema.parse([card, { ...card, payload: { title: "Question", questions: [{ id: 4 }] } }])).toHaveLength(1);
     expect(planningLinksSchema.safeParse([{ title: "missing id" }]).success).toBe(false);
   });
+  it("accepts dismissed cards and skipped answers, defaulting both for older servers", () => {
+    const base = { id: "c", task_id: "t", kind: "user_question", payload: { title: "Questions" } };
+    const [dismissed] = chatCardsSchema.parse([{ ...base, status: "dismissed", response: { action: "dismiss" } }]);
+    expect(dismissed?.status).toBe("dismissed");
+    expect(dismissed?.response?.action).toBe("dismiss");
+    const [answered] = chatCardsSchema.parse([{ ...base, status: "answered", created_at: "2026-10-04T00:00:00Z", response: { action: "answer", answers: [{ question_id: "q0" }, { question_id: "q1", skipped: true }] } }]);
+    expect(answered?.created_at).toBe("2026-10-04T00:00:00Z");
+    expect(answered?.response?.answers).toEqual([
+      { question_id: "q0", selected_option_ids: [], text: "", skipped: false },
+      { question_id: "q1", selected_option_ids: [], text: "", skipped: true },
+    ]);
+    expect(chatCardsSchema.parse([{ ...base, status: "pending" }])[0]?.created_at).toBe("");
+  });
 });

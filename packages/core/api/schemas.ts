@@ -18,6 +18,7 @@ import type {
   ChatPendingTask,
   ChatSession,
   PrioritizeQueuedChatTaskResponse,
+  SteerQueuedChatTaskResponse,
   SendChatMessageResponse,
   StartMikaOnboardingResponse,
   Comment,
@@ -2111,6 +2112,8 @@ const ChatQueuedTaskSchema = z.object({
   created_at: z.string().default(""),
   message_id: z.string().optional(),
   content: z.string().optional(),
+  supplement_status: z.enum(["pending", "delivering", "delivered", "failed"]).optional().catch(undefined),
+  supplement_failure_reason: z.string().optional().catch(undefined),
 }).loose();
 
 const ChatQueuedTasksSchema = z.array(z.unknown()).transform((tasks) =>
@@ -2128,6 +2131,7 @@ export const ChatPendingTaskSchema: z.ZodType<ChatPendingTask> = z.object({
   status: z.string().optional(),
   created_at: z.string().optional(),
   supports_queue: z.boolean().optional(),
+  steerable: z.boolean().catch(false),
   queued_tasks: ChatQueuedTasksSchema.optional(),
 }).loose();
 
@@ -2163,6 +2167,15 @@ export const PrioritizeQueuedChatTaskResponseSchema:
   z.ZodType<PrioritizeQueuedChatTaskResponse> = z.object({
     task_id: z.string(),
     active_task_id: z.string().optional(),
+  }).loose();
+
+export const SteerQueuedChatTaskResponseSchema:
+  z.ZodType<SteerQueuedChatTaskResponse> = z.object({
+    task_id: z.string().min(1),
+    active_task_id: z.string().default(""),
+    message_id: z.string().default(""),
+    status: z.enum(["pending", "delivering", "delivered", "failed"]),
+    failure_reason: z.string().optional(),
   }).loose();
 
 export const EMPTY_PRIORITIZE_QUEUED_CHAT_TASK_RESPONSE:

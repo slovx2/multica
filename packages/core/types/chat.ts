@@ -16,6 +16,11 @@ export interface DirectorySyncResult {
   behind: number;
   updated: number;
 }
+export interface ChatDirectorySyncRequest {
+  agent_id: string;
+  /** Fast-forward even while the directory is held by a run; a clean tree is still required. */
+  force?: boolean;
+}
 export interface ChatExecutionOverrides {
   thinking_level?: string;
   service_tier?: string;
@@ -301,6 +306,9 @@ export interface ChatDraftRestoresResponse {
  * task_id/status only, then this query catches up with the real created_at
  * so the timer survives refresh / reopen without "resetting to 0s".
  */
+/** Delivery state of a steer (mid-turn injection) of a queued task. */
+export type ChatSupplementStatus = "pending" | "delivering" | "delivered" | "failed";
+
 export interface ChatQueuedTask {
   action?: string;
   task_id: string;
@@ -308,6 +316,22 @@ export interface ChatQueuedTask {
   created_at: string;
   message_id?: string;
   content?: string;
+  /**
+   * Latest steer receipt for this queued task. On `failed` the task is already
+   * back in the normal queue and `supplement_failure_reason` says why.
+   */
+  supplement_status?: ChatSupplementStatus;
+  supplement_failure_reason?: string;
+}
+
+export interface SteerQueuedChatTaskResponse {
+  /** The queued task being delivered. */
+  task_id: string;
+  /** The running turn it is delivered into. */
+  active_task_id: string;
+  message_id: string;
+  status: ChatSupplementStatus;
+  failure_reason?: string;
 }
 
 export interface PrioritizeQueuedChatTaskResponse {
@@ -330,6 +354,12 @@ export interface ChatPendingTask {
   wait_reason?: string;
   /** Explicit capability gate; absent on servers predating follow-up queues. */
   supports_queue?: boolean;
+  /**
+   * Whether the running head task accepts mid-turn input (provider, CLI
+   * version and daemon capability all allow it). When false, "Steer" becomes
+   * "Stop and send".
+   */
+  steerable?: boolean;
   /**
    * Ordered follow-ups behind the root task. The root may itself still have
    * database status `queued` before claim, but is never duplicated here.
