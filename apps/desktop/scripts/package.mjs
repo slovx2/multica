@@ -30,6 +30,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { rmSync } from "node:fs";
 import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { bundlePlatformSkill } from "./bundle-platform-skill.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(here, "..");
@@ -365,6 +366,8 @@ function main() {
   console.log(
     `[package] build matrix → ${buildMatrix.map(formatTarget).join(", ")}`,
   );
+
+  console.log(`[package] bundled platform skill → ${bundlePlatformSkill()}`);
 
   // Step 0: start every release from an empty output directory. Stale
   // artifacts from a prior run would otherwise be repacked into this run's
