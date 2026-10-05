@@ -47,7 +47,7 @@ func TestTaskSupplementLoopWaitsForTurnReadyBeforeClaim(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		d.runTaskSupplementLoop(ctx, session, "task-ready", wakeup, d.logger)
+		d.runTaskSupplementLoop(ctx, session, "task-ready", wakeup, d.logger, &atomic.Int32{})
 	}()
 	time.Sleep(30 * time.Millisecond)
 	if got := claims.Load(); got != 0 {
@@ -76,6 +76,9 @@ func TestTaskSupplementLoopAcknowledgesBeforeTurnEnds(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var claims atomic.Int32
+			var acks atomic.Int32
+			var seq atomic.Int32
+			seq.Store(2)
 			ackSeen := make(chan struct{}, 1)
 			d := taskSupplementTestDaemon(t, func(w http.ResponseWriter, r *http.Request) {
 				switch {
@@ -91,12 +94,24 @@ func TestTaskSupplementLoopAcknowledgesBeforeTurnEnds(t *testing.T) {
 					var body struct {
 						Delivered bool   `json:"delivered"`
 						Error     string `json:"error"`
+						AfterSeq  *int32 `json:"after_seq"`
 					}
 					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 						t.Error(err)
 					}
 					if body.Delivered != (tc.err == nil) || body.Error != tc.reason {
 						t.Errorf("ack = %#v, want delivered=%v reason=%q", body, tc.err == nil, tc.reason)
+					}
+					if tc.err == nil && (body.AfterSeq == nil || *body.AfterSeq != 12) {
+						t.Errorf("ack lost delivery-time sequence: %+v", body)
+					}
+					if tc.err != nil && body.AfterSeq != nil {
+						t.Error("failed injection has a delivery position")
+					}
+					if tc.err == nil && acks.Add(1) == 1 {
+						seq.Store(99) // Process output continues during an HTTP retry.
+						w.WriteHeader(http.StatusServiceUnavailable)
+						return
 					}
 					ackSeen <- struct{}{}
 				default:
@@ -111,12 +126,14 @@ func TestTaskSupplementLoopAcknowledgesBeforeTurnEnds(t *testing.T) {
 					if !strings.Contains(instruction, "Preserve and complete the original objective") || !strings.Contains(instruction, "Create evidence.txt") {
 						t.Errorf("injected instruction lost framing or content: %q", instruction)
 					}
+					// Simulate process items emitted while a hook waited to inject.
+					seq.Store(12)
 					return tc.err
 				},
 			}
 			wakeup, unsubscribe := d.taskSupplementSignals.subscribe("task-ack")
 			defer unsubscribe()
-			d.runTaskSupplementLoop(t.Context(), session, "task-ack", wakeup, d.logger)
+			d.runTaskSupplementLoop(t.Context(), session, "task-ack", wakeup, d.logger, &seq)
 			if injections != 1 {
 				t.Fatalf("injections = %d, want 1", injections)
 			}

@@ -77,6 +77,18 @@ normal execution. While delivery is pending, editing and duplicate steering are
 rejected; removal remains available. Queued file attachments use the same ID/filename and authenticated CLI download
 instructions as ordinary chat messages.
 
+Successful daemon acknowledgements include `after_seq`, the last assigned task
+process sequence when the provider accepts the guidance. The server persists the
+first successful boundary as `chat_task_supplement.delivered_after_seq`; repeated
+acks cannot move it. Older daemons that omit it use the task's largest persisted
+sequence at acknowledgement time (zero for an empty transcript), which is an
+approximation when transcript batches are still in flight. List and paginated
+message responses expose `steer_after_seq: number | null` only for delivered
+guidance, allowing the UI to split a process card at that boundary. Ordinary
+messages and historical receipts without a recorded boundary return null.
+Migration 583 adds the nullable boundary and has a down migration. CLI and desktop
+daemons must be updated for delivery-time boundaries.
+
 Claude accepts guidance at hook boundaries. A long-running tool can therefore
 delay injection until the next hook; it does not interrupt that tool.
 

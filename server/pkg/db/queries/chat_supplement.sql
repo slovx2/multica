@@ -113,6 +113,8 @@ WITH session AS MATERIALIZED (
 ), delivered AS (
     UPDATE chat_task_supplement s
     SET status = 'delivered', delivered_at = COALESCE(delivered_at, now()),
+        delivered_after_seq = COALESCE(s.delivered_after_seq, sqlc.narg('after_seq')::integer,
+            (SELECT COALESCE(MAX(seq), 0) FROM task_message WHERE task_id = s.task_id)),
         failure_reason = NULL, updated_at = now()
     FROM queued q
     WHERE s.queued_task_id = q.id AND s.task_id = @task_id
@@ -174,3 +176,13 @@ SELECT EXISTS (
       AND supplement.chat_session_id = @chat_session_id
       AND supplement.status = 'delivered'
 ) AS delivered;
+
+-- name: ListChatMessageSteerPositions :many
+-- Fetch only this response's delivered guidance, without changing pagination.
+SELECT s.chat_message_id, s.delivered_after_seq
+FROM chat_task_supplement s
+JOIN chat_message m ON m.id = s.chat_message_id AND m.task_id = s.task_id
+WHERE s.workspace_id = @workspace_id AND s.chat_session_id = @chat_session_id
+  AND m.chat_session_id = @chat_session_id AND m.role = 'user'
+  AND s.chat_message_id = ANY(@message_ids::uuid[])
+  AND s.status = 'delivered' AND s.delivered_after_seq IS NOT NULL;

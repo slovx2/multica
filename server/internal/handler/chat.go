@@ -1313,11 +1313,25 @@ func (h *Handler) ListChatMessages(w http.ResponseWriter, r *http.Request) {
 	for i, m := range messages {
 		messageIDs[i] = m.ID
 	}
+	positions, err := h.Queries.ListChatMessageSteerPositions(r.Context(), db.ListChatMessageSteerPositionsParams{
+		WorkspaceID: session.WorkspaceID, ChatSessionID: session.ID, MessageIds: messageIDs,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load chat steering positions")
+		return
+	}
+	steerPositions := make(map[pgtype.UUID]int32, len(positions))
+	for _, position := range positions {
+		steerPositions[position.ChatMessageID] = position.DeliveredAfterSeq.Int32
+	}
 	groupedAtt := h.groupChatMessageAttachments(r.Context(), workspaceID, messageIDs)
 
 	resp := make([]ChatMessageResponse, len(messages))
 	for i, m := range messages {
 		resp[i] = chatMessageToResponse(m, groupedAtt[uuidToString(m.ID)])
+		if seq, ok := steerPositions[m.ID]; ok {
+			resp[i].SteerAfterSeq = &seq
+		}
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -1378,11 +1392,25 @@ func (h *Handler) ListChatMessagesPage(w http.ResponseWriter, r *http.Request) {
 	for i, m := range messages {
 		messageIDs[i] = m.ID
 	}
+	positions, err := h.Queries.ListChatMessageSteerPositions(r.Context(), db.ListChatMessageSteerPositionsParams{
+		WorkspaceID: session.WorkspaceID, ChatSessionID: session.ID, MessageIds: messageIDs,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load chat steering positions")
+		return
+	}
+	steerPositions := make(map[pgtype.UUID]int32, len(positions))
+	for _, position := range positions {
+		steerPositions[position.ChatMessageID] = position.DeliveredAfterSeq.Int32
+	}
 	groupedAtt := h.groupChatMessageAttachments(r.Context(), workspaceID, messageIDs)
 
 	resp := make([]ChatMessageResponse, len(messages))
 	for i, m := range messages {
 		resp[i] = chatMessageToResponse(m, groupedAtt[uuidToString(m.ID)])
+		if seq, ok := steerPositions[m.ID]; ok {
+			resp[i].SteerAfterSeq = &seq
+		}
 	}
 	writeJSON(w, http.StatusOK, ChatMessagesPageResponse{
 		Messages:   resp,
@@ -2171,6 +2199,8 @@ func buildChatLastMessage(at pgtype.Timestamptz, content, role string, failure p
 }
 
 type ChatMessageResponse struct {
+	// SteerAfterSeq anchors delivered guidance within its task transcript.
+	SteerAfterSeq *int32  `json:"steer_after_seq"`
 	ID            string  `json:"id"`
 	ChatSessionID string  `json:"chat_session_id"`
 	Role          string  `json:"role"`

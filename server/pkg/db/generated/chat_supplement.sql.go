@@ -35,13 +35,15 @@ WITH session AS MATERIALIZED (
 ), delivered AS (
     UPDATE chat_task_supplement s
     SET status = 'delivered', delivered_at = COALESCE(delivered_at, now()),
+        delivered_after_seq = COALESCE(s.delivered_after_seq, $3::integer,
+            (SELECT COALESCE(MAX(seq), 0) FROM task_message WHERE task_id = s.task_id)),
         failure_reason = NULL, updated_at = now()
     FROM queued q
     WHERE s.queued_task_id = q.id AND s.task_id = $1
       AND s.chat_message_id = $2
       AND (s.status IN ('delivering', 'delivered')
            OR (s.status = 'failed' AND s.failure_reason = 'turn_ended' AND s.attempt_count > 0))
-    RETURNING s.task_id, s.queued_task_id, s.chat_message_id, s.chat_session_id, s.workspace_id, s.author_id, s.client_request_id, s.status, s.failure_reason, s.attempt_count, s.created_at, s.updated_at, s.delivered_at
+    RETURNING s.task_id, s.queued_task_id, s.chat_message_id, s.chat_session_id, s.workspace_id, s.author_id, s.client_request_id, s.status, s.failure_reason, s.attempt_count, s.created_at, s.updated_at, s.delivered_at, s.delivered_after_seq
 ), moved AS (
     UPDATE chat_message m SET task_id = d.task_id
     FROM delivered d WHERE m.id = d.chat_message_id
@@ -51,35 +53,37 @@ WITH session AS MATERIALIZED (
     FROM delivered d WHERE q.id = d.queued_task_id AND q.status = 'queued'
     RETURNING q.id
 )
-SELECT delivered.task_id, delivered.queued_task_id, delivered.chat_message_id, delivered.chat_session_id, delivered.workspace_id, delivered.author_id, delivered.client_request_id, delivered.status, delivered.failure_reason, delivered.attempt_count, delivered.created_at, delivered.updated_at, delivered.delivered_at FROM delivered
+SELECT delivered.task_id, delivered.queued_task_id, delivered.chat_message_id, delivered.chat_session_id, delivered.workspace_id, delivered.author_id, delivered.client_request_id, delivered.status, delivered.failure_reason, delivered.attempt_count, delivered.created_at, delivered.updated_at, delivered.delivered_at, delivered.delivered_after_seq FROM delivered
 WHERE (SELECT count(*) FROM moved) >= 0 AND (SELECT count(*) FROM cancelled) >= 0
 `
 
 type AckChatTaskSupplementDeliveredParams struct {
 	TaskID        pgtype.UUID `json:"task_id"`
 	ChatMessageID pgtype.UUID `json:"chat_message_id"`
+	AfterSeq      pgtype.Int4 `json:"after_seq"`
 }
 
 type AckChatTaskSupplementDeliveredRow struct {
-	TaskID          pgtype.UUID        `json:"task_id"`
-	QueuedTaskID    pgtype.UUID        `json:"queued_task_id"`
-	ChatMessageID   pgtype.UUID        `json:"chat_message_id"`
-	ChatSessionID   pgtype.UUID        `json:"chat_session_id"`
-	WorkspaceID     pgtype.UUID        `json:"workspace_id"`
-	AuthorID        pgtype.UUID        `json:"author_id"`
-	ClientRequestID pgtype.UUID        `json:"client_request_id"`
-	Status          string             `json:"status"`
-	FailureReason   pgtype.Text        `json:"failure_reason"`
-	AttemptCount    int32              `json:"attempt_count"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-	DeliveredAt     pgtype.Timestamptz `json:"delivered_at"`
+	TaskID            pgtype.UUID        `json:"task_id"`
+	QueuedTaskID      pgtype.UUID        `json:"queued_task_id"`
+	ChatMessageID     pgtype.UUID        `json:"chat_message_id"`
+	ChatSessionID     pgtype.UUID        `json:"chat_session_id"`
+	WorkspaceID       pgtype.UUID        `json:"workspace_id"`
+	AuthorID          pgtype.UUID        `json:"author_id"`
+	ClientRequestID   pgtype.UUID        `json:"client_request_id"`
+	Status            string             `json:"status"`
+	FailureReason     pgtype.Text        `json:"failure_reason"`
+	AttemptCount      int32              `json:"attempt_count"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	DeliveredAt       pgtype.Timestamptz `json:"delivered_at"`
+	DeliveredAfterSeq pgtype.Int4        `json:"delivered_after_seq"`
 }
 
 // The session lock orders against terminal settlement, the agent lock against
 // the queue dispatcher. Late success may retire only input still in the queue.
 func (q *Queries) AckChatTaskSupplementDelivered(ctx context.Context, arg AckChatTaskSupplementDeliveredParams) (AckChatTaskSupplementDeliveredRow, error) {
-	row := q.db.QueryRow(ctx, ackChatTaskSupplementDelivered, arg.TaskID, arg.ChatMessageID)
+	row := q.db.QueryRow(ctx, ackChatTaskSupplementDelivered, arg.TaskID, arg.ChatMessageID, arg.AfterSeq)
 	var i AckChatTaskSupplementDeliveredRow
 	err := row.Scan(
 		&i.TaskID,
@@ -95,6 +99,7 @@ func (q *Queries) AckChatTaskSupplementDelivered(ctx context.Context, arg AckCha
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeliveredAt,
+		&i.DeliveredAfterSeq,
 	)
 	return i, err
 }
@@ -104,7 +109,7 @@ UPDATE chat_task_supplement
 SET status = 'failed', failure_reason = $1, updated_at = now()
 WHERE task_id = $2 AND chat_message_id = $3
   AND status = 'delivering'
-RETURNING task_id, queued_task_id, chat_message_id, chat_session_id, workspace_id, author_id, client_request_id, status, failure_reason, attempt_count, created_at, updated_at, delivered_at
+RETURNING task_id, queued_task_id, chat_message_id, chat_session_id, workspace_id, author_id, client_request_id, status, failure_reason, attempt_count, created_at, updated_at, delivered_at, delivered_after_seq
 `
 
 type AckChatTaskSupplementFailedParams struct {
@@ -130,6 +135,7 @@ func (q *Queries) AckChatTaskSupplementFailed(ctx context.Context, arg AckChatTa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeliveredAt,
+		&i.DeliveredAfterSeq,
 	)
 	return i, err
 }
@@ -179,7 +185,7 @@ WITH next AS MATERIALIZED (
         failure_reason = NULL, updated_at = now()
     FROM next
     WHERE s.chat_message_id = next.chat_message_id AND s.task_id = next.task_id
-    RETURNING s.task_id, s.queued_task_id, s.chat_message_id, s.chat_session_id, s.workspace_id, s.author_id, s.client_request_id, s.status, s.failure_reason, s.attempt_count, s.created_at, s.updated_at, s.delivered_at
+    RETURNING s.task_id, s.queued_task_id, s.chat_message_id, s.chat_session_id, s.workspace_id, s.author_id, s.client_request_id, s.status, s.failure_reason, s.attempt_count, s.created_at, s.updated_at, s.delivered_at, s.delivered_after_seq
 )
 SELECT claimed.chat_message_id, claimed.attempt_count, m.content,
        COALESCE(NULLIF(btrim(u.name), ''), 'a user')::text AS author_name
@@ -248,7 +254,7 @@ WHERE m.chat_session_id = $2
   AND NOT m.channel_ingested
   AND (btrim(m.content) <> '' OR EXISTS (SELECT 1 FROM attachment a WHERE a.chat_message_id = m.id))
   AND (SELECT count(*) FROM chat_message other WHERE other.task_id = q.id AND other.role = 'user') = 1
-RETURNING task_id, queued_task_id, chat_message_id, chat_session_id, workspace_id, author_id, client_request_id, status, failure_reason, attempt_count, created_at, updated_at, delivered_at
+RETURNING task_id, queued_task_id, chat_message_id, chat_session_id, workspace_id, author_id, client_request_id, status, failure_reason, attempt_count, created_at, updated_at, delivered_at, delivered_after_seq
 `
 
 type CreateChatTaskSupplementParams struct {
@@ -286,6 +292,7 @@ func (q *Queries) CreateChatTaskSupplement(ctx context.Context, arg CreateChatTa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeliveredAt,
+		&i.DeliveredAfterSeq,
 	)
 	return i, err
 }
@@ -307,7 +314,7 @@ func (q *Queries) DeleteChatTaskSupplementsBySystemRuntimeAgents(ctx context.Con
 }
 
 const getChatTaskSupplementByRequest = `-- name: GetChatTaskSupplementByRequest :one
-SELECT task_id, queued_task_id, chat_message_id, chat_session_id, workspace_id, author_id, client_request_id, status, failure_reason, attempt_count, created_at, updated_at, delivered_at FROM chat_task_supplement
+SELECT task_id, queued_task_id, chat_message_id, chat_session_id, workspace_id, author_id, client_request_id, status, failure_reason, attempt_count, created_at, updated_at, delivered_at, delivered_after_seq FROM chat_task_supplement
 WHERE chat_session_id = $1 AND workspace_id = $2
   AND author_id = $3 AND client_request_id = $4
 `
@@ -341,12 +348,55 @@ func (q *Queries) GetChatTaskSupplementByRequest(ctx context.Context, arg GetCha
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeliveredAt,
+		&i.DeliveredAfterSeq,
 	)
 	return i, err
 }
 
+const listChatMessageSteerPositions = `-- name: ListChatMessageSteerPositions :many
+SELECT s.chat_message_id, s.delivered_after_seq
+FROM chat_task_supplement s
+JOIN chat_message m ON m.id = s.chat_message_id AND m.task_id = s.task_id
+WHERE s.workspace_id = $1 AND s.chat_session_id = $2
+  AND m.chat_session_id = $2 AND m.role = 'user'
+  AND s.chat_message_id = ANY($3::uuid[])
+  AND s.status = 'delivered' AND s.delivered_after_seq IS NOT NULL
+`
+
+type ListChatMessageSteerPositionsParams struct {
+	WorkspaceID   pgtype.UUID   `json:"workspace_id"`
+	ChatSessionID pgtype.UUID   `json:"chat_session_id"`
+	MessageIds    []pgtype.UUID `json:"message_ids"`
+}
+
+type ListChatMessageSteerPositionsRow struct {
+	ChatMessageID     pgtype.UUID `json:"chat_message_id"`
+	DeliveredAfterSeq pgtype.Int4 `json:"delivered_after_seq"`
+}
+
+// Fetch only this response's delivered guidance, without changing pagination.
+func (q *Queries) ListChatMessageSteerPositions(ctx context.Context, arg ListChatMessageSteerPositionsParams) ([]ListChatMessageSteerPositionsRow, error) {
+	rows, err := q.db.Query(ctx, listChatMessageSteerPositions, arg.WorkspaceID, arg.ChatSessionID, arg.MessageIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListChatMessageSteerPositionsRow{}
+	for rows.Next() {
+		var i ListChatMessageSteerPositionsRow
+		if err := rows.Scan(&i.ChatMessageID, &i.DeliveredAfterSeq); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listChatTaskSupplementsForSession = `-- name: ListChatTaskSupplementsForSession :many
-SELECT DISTINCT ON (queued_task_id) task_id, queued_task_id, chat_message_id, chat_session_id, workspace_id, author_id, client_request_id, status, failure_reason, attempt_count, created_at, updated_at, delivered_at FROM chat_task_supplement
+SELECT DISTINCT ON (queued_task_id) task_id, queued_task_id, chat_message_id, chat_session_id, workspace_id, author_id, client_request_id, status, failure_reason, attempt_count, created_at, updated_at, delivered_at, delivered_after_seq FROM chat_task_supplement
 WHERE chat_session_id = $1 AND workspace_id = $2
   AND queued_task_id = ANY($3::uuid[])
 ORDER BY queued_task_id, created_at DESC, chat_message_id
@@ -381,6 +431,7 @@ func (q *Queries) ListChatTaskSupplementsForSession(ctx context.Context, arg Lis
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeliveredAt,
+			&i.DeliveredAfterSeq,
 		); err != nil {
 			return nil, err
 		}
