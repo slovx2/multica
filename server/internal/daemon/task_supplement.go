@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/multica-ai/multica/server/pkg/agent"
@@ -129,7 +130,7 @@ func taskSupplementFailureReason(ctx context.Context, err error) string {
 // one negotiated run. It performs no HTTP request until the provider confirms a live
 // turn, wakes immediately on a content-free WebSocket hint, and otherwise uses
 // the same five-second cadence as task cancellation polling.
-func (d *Daemon) runTaskSupplementLoop(ctx context.Context, session *agent.Session, taskID string, wakeup <-chan struct{}, taskLog *slog.Logger) {
+func (d *Daemon) runTaskSupplementLoop(ctx context.Context, session *agent.Session, taskID string, wakeup <-chan struct{}, taskLog *slog.Logger, msgSeq *atomic.Int32) {
 	if session == nil || session.Supplement == nil || session.SupplementReady == nil {
 		return
 	}
@@ -164,6 +165,14 @@ func (d *Daemon) runTaskSupplementLoop(ctx context.Context, session *agent.Sessi
 		// safe boundary, which can follow a long-running tool; run cancellation
 		// still aborts that wait and prevents late delivery.
 		injectErr := session.Supplement(ctx, formatTaskSupplementInstruction(supplement.AuthorName, supplement.Content))
+		// Sample after the provider accepts delivery, not before a hook wait.
+		// The daemon sequence includes batches not yet persisted by the server.
+		// Keep this snapshot unchanged through acknowledgement HTTP retries.
+		var afterSeq *int32
+		if injectErr == nil {
+			seq := msgSeq.Load()
+			afterSeq = &seq
+		}
 		reason := taskSupplementFailureReason(ctx, injectErr)
 		if injectErr != nil {
 			// Raw provider/Go diagnostics remain local. Workspace-visible state is
@@ -172,7 +181,7 @@ func (d *Daemon) runTaskSupplementLoop(ctx context.Context, session *agent.Sessi
 		}
 
 		ackCtx, cancelAck := context.WithTimeout(context.WithoutCancel(ctx), taskSupplementAckTimeout)
-		ackErr := d.client.AckTaskSupplement(ackCtx, taskID, supplement.CommentID, injectErr == nil, reason)
+		ackErr := d.client.AckTaskSupplement(ackCtx, taskID, supplement.CommentID, injectErr == nil, reason, afterSeq)
 		cancelAck()
 		if ackErr != nil {
 			taskLog.Warn("additional message acknowledgement failed", "comment_id", supplement.CommentID, "error", ackErr)

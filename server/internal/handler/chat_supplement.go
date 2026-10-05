@@ -189,7 +189,7 @@ func (h *Handler) ackChatTaskSupplement(w http.ResponseWriter, r *http.Request, 
 	var row db.ChatTaskSupplement
 	if req.Delivered {
 		var delivered db.AckChatTaskSupplementDeliveredRow
-		delivered, err = qtx.AckChatTaskSupplementDelivered(r.Context(), db.AckChatTaskSupplementDeliveredParams{TaskID: task.ID, ChatMessageID: messageID})
+		delivered, err = qtx.AckChatTaskSupplementDelivered(r.Context(), db.AckChatTaskSupplementDeliveredParams{TaskID: task.ID, ChatMessageID: messageID, AfterSeq: nullableAfterSeq(req.AfterSeq)})
 		row = db.ChatTaskSupplement(delivered)
 	} else {
 		row, err = qtx.AckChatTaskSupplementFailed(r.Context(), db.AckChatTaskSupplementFailedParams{TaskID: task.ID, ChatMessageID: messageID, FailureReason: pgtype.Text{String: stableTaskSupplementFailureReason(req.Error), Valid: true}})
@@ -234,4 +234,11 @@ func (h *Handler) requireChatSupplementRuntime(w http.ResponseWriter, r *http.Re
 	}
 	writeError(w, 403, "only the executing runtime may deliver chat guidance")
 	return false
+}
+
+func nullableAfterSeq(seq *int32) pgtype.Int4 {
+	if seq == nil {
+		return pgtype.Int4{}
+	}
+	return pgtype.Int4{Int32: *seq, Valid: true}
 }

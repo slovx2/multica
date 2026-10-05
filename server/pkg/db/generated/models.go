@@ -576,19 +576,20 @@ type ChatSession struct {
 }
 
 type ChatTaskSupplement struct {
-	TaskID          pgtype.UUID        `json:"task_id"`
-	QueuedTaskID    pgtype.UUID        `json:"queued_task_id"`
-	ChatMessageID   pgtype.UUID        `json:"chat_message_id"`
-	ChatSessionID   pgtype.UUID        `json:"chat_session_id"`
-	WorkspaceID     pgtype.UUID        `json:"workspace_id"`
-	AuthorID        pgtype.UUID        `json:"author_id"`
-	ClientRequestID pgtype.UUID        `json:"client_request_id"`
-	Status          string             `json:"status"`
-	FailureReason   pgtype.Text        `json:"failure_reason"`
-	AttemptCount    int32              `json:"attempt_count"`
-	CreatedAt       pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
-	DeliveredAt     pgtype.Timestamptz `json:"delivered_at"`
+	TaskID            pgtype.UUID        `json:"task_id"`
+	QueuedTaskID      pgtype.UUID        `json:"queued_task_id"`
+	ChatMessageID     pgtype.UUID        `json:"chat_message_id"`
+	ChatSessionID     pgtype.UUID        `json:"chat_session_id"`
+	WorkspaceID       pgtype.UUID        `json:"workspace_id"`
+	AuthorID          pgtype.UUID        `json:"author_id"`
+	ClientRequestID   pgtype.UUID        `json:"client_request_id"`
+	Status            string             `json:"status"`
+	FailureReason     pgtype.Text        `json:"failure_reason"`
+	AttemptCount      int32              `json:"attempt_count"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	DeliveredAt       pgtype.Timestamptz `json:"delivered_at"`
+	DeliveredAfterSeq pgtype.Int4        `json:"delivered_after_seq"`
 }
 
 type ClientUsageDaily struct {

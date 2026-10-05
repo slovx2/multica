@@ -1765,6 +1765,20 @@ describe("ApiClient", () => {
       ]);
     });
 
+    it("drops a malformed steer split point without hiding the message", async () => {
+      const malformed = [
+        { id: "m1", chat_session_id: "session-1", role: "user", content: "steer", task_id: "task-1", created_at: "2026-06-01T00:00:00Z", steer_after_seq: "7" },
+        { id: "m2", chat_session_id: "session-1", role: "user", content: "steer 2", task_id: "task-1", created_at: "2026-06-01T00:00:01Z", steer_after_seq: 7 },
+      ];
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(malformed, 200)));
+
+      const client = new ApiClient("https://api.example.test");
+      await expect(client.listChatMessages("session-1")).resolves.toEqual([
+        expect.objectContaining({ content: "steer", steer_after_seq: null }),
+        expect.objectContaining({ content: "steer 2", steer_after_seq: 7 }),
+      ]);
+    });
+
     it("falls back to an empty page for a malformed paged response", async () => {
       vi.stubGlobal(
         "fetch",

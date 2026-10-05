@@ -9402,7 +9402,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 		go func() {
 			defer unsubscribe()
 			defer close(supplementsDone)
-			d.runTaskSupplementLoop(supplementCtx, session, taskID, wakeup, taskLog)
+			d.runTaskSupplementLoop(supplementCtx, session, taskID, wakeup, taskLog, msgSeq)
 		}()
 		defer func() {
 			cancelSupplements()

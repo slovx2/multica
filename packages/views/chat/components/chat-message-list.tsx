@@ -58,6 +58,7 @@ import {
 } from "../lib/copy-text";
 import { stripChatQuickActionsProtocol } from "../lib/quick-actions";
 import { mergePlanCards } from "../lib/plan-timeline";
+import { spliceSteeredMessages } from "../lib/steer-timeline";
 import type { ChatCard } from "@multica/core/chat/planning";
 import { ChatPlanMessage } from "./chat-plan-message";
 import { useT } from "../../i18n";
@@ -128,9 +129,11 @@ interface ChatListContext {
  * Mermaid diagram or HTML iframe mounted across task completion.
  */
 type ChatRenderItem =
-  | { key: string; kind: "message"; message: ChatMessage; taskId: string | null }
-  | { key: string; kind: "live"; taskId: string }
-  | { key: string; kind: "plan"; card: ChatCard; taskId: null };
+  | { key: string; kind: "message"; message: ChatMessage; taskId: string | null; afterSeq?: number }
+  | { key: string; kind: "live"; taskId: string; afterSeq?: number }
+  | { key: string; kind: "plan"; card: ChatCard; taskId: null }
+  // Process of a turn up to a steered message; the turn row keeps the rest.
+  | { key: string; kind: "segment"; taskId: string; afterSeq?: number; upToSeq: number };
 
 /**
  * Row key for a persisted message. Assistant turns carrying a task_id key on
@@ -285,8 +288,38 @@ export function ChatMessageList({
     if (hasLive && pendingTaskId) {
       items.push({ key: `task:${pendingTaskId}`, kind: "live", taskId: pendingTaskId });
     }
-    if (planCards.length === 0) return items;
-    return mergePlanCards(items, planCards, (item) => ({
+    const segmentKeys = new Map<string, number>();
+    const steered = spliceSteeredMessages(items, (item) => ({
+      taskRow:
+        item.kind === "live" || (item.kind === "message" && item.message.role === "assistant")
+          ? item.taskId
+          : null,
+      steer:
+        item.kind === "message" &&
+        item.message.role === "user" &&
+        item.message.task_id &&
+        item.message.steer_after_seq != null
+          ? { taskId: item.message.task_id, afterSeq: item.message.steer_after_seq }
+          : null,
+    })).map((entry): ChatRenderItem => {
+      if (entry.kind === "item") {
+        return entry.afterSeq === undefined || entry.item.kind === "plan" || entry.item.kind === "segment"
+          ? entry.item
+          : { ...entry.item, afterSeq: entry.afterSeq };
+      }
+      const base = `task:${entry.taskId}:to:${entry.upToSeq}`;
+      const seen = segmentKeys.get(base) ?? 0;
+      segmentKeys.set(base, seen + 1);
+      return {
+        key: seen === 0 ? base : `${base}:${seen}`,
+        kind: "segment",
+        taskId: entry.taskId,
+        afterSeq: entry.afterSeq,
+        upToSeq: entry.upToSeq,
+      };
+    });
+    if (planCards.length === 0) return steered;
+    return mergePlanCards(steered, planCards, (item) => ({
       anchorTaskId:
         item.kind === "live" || (item.kind === "message" && item.message.role === "assistant")
           ? item.taskId
@@ -401,6 +434,13 @@ export function ChatMessageList({
           >
             {item.kind === "plan" ? (
               <ChatPlanMessage card={item.card} onOpen={(id) => onOpenPlan?.(id)} />
+            ) : item.kind === "segment" ? (
+              <AssistantProcessSegment
+                taskId={item.taskId}
+                afterSeq={item.afterSeq}
+                upToSeq={item.upToSeq}
+                transformContent={transformContent}
+              />
             ) : (
             <MessageBubble
               item={item}
@@ -479,7 +519,7 @@ const MessageBubble = memo(function MessageBubble({
   quickActionsPendingMessageId,
   starterCardsMessageId,
 }: {
-  item: Exclude<ChatRenderItem, { kind: "plan" }>;
+  item: Exclude<ChatRenderItem, { kind: "plan" } | { kind: "segment" }>;
   isPending: boolean;
   transformContent?: (content: string) => string;
   onQuickAction?: (action: ChatQuickAction) => void | Promise<unknown>;
@@ -496,6 +536,7 @@ const MessageBubble = memo(function MessageBubble({
     return (
       <AssistantMessage
         taskId={item.taskId}
+        afterSeq={item.afterSeq}
         isPending={isPending}
         transformContent={transformContent}
         onQuickAction={onQuickAction}
@@ -534,6 +575,7 @@ const MessageBubble = memo(function MessageBubble({
   return (
     <AssistantMessage
       taskId={message.task_id ?? null}
+      afterSeq={item.afterSeq}
       message={message}
       isPending={isPending}
       transformContent={transformContent}
@@ -566,6 +608,7 @@ const MessageBubble = memo(function MessageBubble({
  */
 function AssistantMessage({
   taskId,
+  afterSeq,
   message,
   isPending,
   transformContent,
@@ -577,6 +620,8 @@ function AssistantMessage({
   showStarterCards = false,
 }: {
   taskId: string | null;
+  /** Process up to this seq was rendered before a steered message. */
+  afterSeq?: number;
   message?: ChatMessage;
   isPending: boolean;
   transformContent?: (content: string) => string;
@@ -602,8 +647,12 @@ function AssistantMessage({
   // array reference when a duplicate event arrives, so this recomputes only
   // when a genuinely new message lands.
   const timeline: ChatTimelineItem[] = useMemo(
-    () => transformTimeline(buildTimeline(taskMessages ?? []), transformContent),
-    [taskMessages, transformContent],
+    () =>
+      transformTimeline(
+        buildTimeline(seqRange(taskMessages ?? [], afterSeq)),
+        transformContent,
+      ),
+    [taskMessages, transformContent, afterSeq],
   );
 
   // Content is settled once the persisted message exists; until then text is
@@ -696,6 +745,58 @@ function AssistantMessage({
           ) : null}
         </>
       )}
+    </div>
+  );
+}
+
+// Slices the raw transcript, before buildTimeline coalesces adjacent
+// text/thinking fragments: a merged item keeps only its first seq, so cutting
+// after merging would pull post-steer text back in front of the steer.
+function seqRange<T extends { seq: number }>(
+  messages: readonly T[],
+  afterSeq?: number,
+  upToSeq?: number,
+): T[] {
+  if (afterSeq === undefined && upToSeq === undefined) return messages as T[];
+  return messages.filter(
+    (item) =>
+      (afterSeq === undefined || item.seq > afterSeq) &&
+      (upToSeq === undefined || item.seq <= upToSeq),
+  );
+}
+
+/**
+ * The part of a turn's process that ran before a steered message arrived.
+ * It is finished history, so it renders as one collapsed process card; the
+ * turn's own row continues with the rest of the process and the answer.
+ */
+function AssistantProcessSegment({
+  taskId,
+  afterSeq,
+  upToSeq,
+  transformContent,
+}: {
+  taskId: string;
+  afterSeq?: number;
+  upToSeq: number;
+  transformContent?: (content: string) => string;
+}) {
+  const { data: taskMessages } = useQuery({
+    ...taskMessagesOptions(taskId),
+    enabled: isTaskMessageTaskId(taskId),
+  });
+  const items = useMemo(
+    () =>
+      transformTimeline(
+        buildTimeline(seqRange(taskMessages ?? [], afterSeq, upToSeq)),
+        transformContent,
+      ),
+    [taskMessages, afterSeq, upToSeq, transformContent],
+  );
+  if (items.length === 0) return null;
+  return (
+    <div className="w-full" data-testid="chat-process-segment">
+      <OuterProcessFold items={items} phase="settled" />
     </div>
   );
 }

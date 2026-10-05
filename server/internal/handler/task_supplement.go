@@ -377,6 +377,7 @@ func (h *Handler) RetryTaskSupplement(w http.ResponseWriter, r *http.Request) {
 
 type ackTaskSupplementRequest struct {
 	Delivered bool   `json:"delivered"`
+	AfterSeq  *int32 `json:"after_seq,omitempty"`
 	Error     string `json:"error,omitempty"`
 }
 
@@ -420,6 +421,10 @@ func (h *Handler) AckTaskSupplement(w http.ResponseWriter, r *http.Request) {
 	var req ackTaskSupplementRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.AfterSeq != nil && *req.AfterSeq < 0 {
+		writeError(w, http.StatusBadRequest, "after_seq must be nonnegative")
 		return
 	}
 	if task.ChatSessionID.Valid && !task.IssueID.Valid {
