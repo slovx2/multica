@@ -84,6 +84,12 @@ In the composer, a delivering row shows "Steering…" and the steer button reads
 "Stop and send" whenever the head is not `steerable`. A delivery that fails while
 the queue is on screen is announced once; the row stays in the queue.
 
+A delivered steer carries `steer_after_seq`: the last process `seq` the agent had
+emitted when it received the message. The conversation cuts the receiving turn
+there — process so far, then the steered message, then the rest of the turn with
+its answer — so the message reads in delivery order instead of above the whole
+process card. Messages without a split point keep their queue-time position.
+
 ## Plans and questions
 
 A plan is shown as the agent's own message, anchored after the reply of the run

@@ -847,6 +847,8 @@ export const ChatMessageSchema = z.object({
   // Optional additive data degrades independently: a malformed suggestion
   // must not hide the assistant reply that contains it.
   quick_actions: z.array(ChatQuickActionSchema).catch([]).optional().default([]),
+  // A malformed split point falls back to the unsplit turn.
+  steer_after_seq: z.number().int().nonnegative().nullable().optional().catch(null),
 }).loose();
 
 export const ChatMessageListSchema = z.array(ChatMessageSchema).default([]);

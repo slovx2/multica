@@ -986,3 +986,122 @@ describe("ChatMessageList plan rows", () => {
     expect(onOpenPlan).toHaveBeenCalledWith("plan-1");
   });
 });
+
+describe("ChatMessageList steered messages", () => {
+  const ORIGINAL = {
+    id: "user-original",
+    chat_session_id: "session-1",
+    role: "user" as const,
+    content: "Original request",
+    task_id: TASK_ID,
+    created_at: "2026-09-17T00:00:00Z",
+  };
+  const STEER = {
+    id: "user-steer",
+    chat_session_id: "session-1",
+    role: "user" as const,
+    content: "Also check the docs",
+    task_id: TASK_ID,
+    created_at: "2026-09-17T00:00:01Z",
+    steer_after_seq: 2,
+  };
+  const TIMELINE = [
+    taskMsg(0, "tool_use", { tool: "Read", input: { path: "/tmp/before" } }),
+    taskMsg(1, "tool_result", { tool: "Read", output: "before" }),
+    taskMsg(2, "text", { content: "Narration before steer" }),
+    taskMsg(3, "tool_use", { tool: "Bash", input: { command: "ls docs" } }),
+    taskMsg(4, "text", { content: "Answer after steer" }),
+  ];
+
+  function view(
+    qc: QueryClient,
+    messages: Parameters<typeof ChatMessageList>[0]["messages"],
+    pendingTask: Parameters<typeof ChatMessageList>[0]["pendingTask"],
+  ) {
+    return (
+      <I18nProvider locale="en" resources={TEST_RESOURCES}>
+        <QueryClientProvider client={qc}>
+          <ChatMessageList messages={messages} pendingTask={pendingTask} availability="online" />
+        </QueryClientProvider>
+      </I18nProvider>
+    );
+  }
+
+  const rowKeys = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll("[data-row-key]")).map((row) =>
+      row.getAttribute("data-row-key"),
+    );
+
+  it("shows the steer after the process so far and continues the live turn below it", async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(chatKeys.taskMessages(TASK_ID), TIMELINE);
+    const { container } = render(
+      view(qc, [ORIGINAL, STEER], { task_id: TASK_ID, status: "running" }),
+    );
+
+    expect(await screen.findByText("Answer after steer")).toBeInTheDocument();
+    expect(rowKeys(container)).toEqual([
+      "user-original",
+      `task:${TASK_ID}:to:2`,
+      "user-steer",
+      `task:${TASK_ID}`,
+    ]);
+    const segment = screen.getByTestId("chat-process-segment");
+    expect(segment.compareDocumentPosition(screen.getByText("Also check the docs"))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(screen.queryByText("Narration before steer")).not.toBeInTheDocument();
+  });
+
+  it("keeps the split and the turn row identity once the reply persists", async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(chatKeys.taskMessages(TASK_ID), TIMELINE);
+    const { container, rerender } = render(
+      view(qc, [ORIGINAL, STEER], { task_id: TASK_ID, status: "running" }),
+    );
+    const answerBefore = await screen.findByText("Answer after steer");
+
+    rerender(
+      view(
+        qc,
+        [
+          ORIGINAL,
+          STEER,
+          {
+            id: "assistant-reply",
+            chat_session_id: "session-1",
+            role: "assistant",
+            content: "Answer after steer",
+            task_id: TASK_ID,
+            created_at: "2026-09-17T00:00:05Z",
+          },
+        ],
+        null,
+      ),
+    );
+
+    expect(await screen.findByText("Answer after steer")).toBe(answerBefore);
+    expect(screen.getAllByText("Answer after steer")).toHaveLength(1);
+    expect(rowKeys(container)).toEqual([
+      "user-original",
+      `task:${TASK_ID}:to:2`,
+      "user-steer",
+      `task:${TASK_ID}`,
+    ]);
+  });
+
+  it("leaves an unsplit turn as before when the server sends no split point", async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(chatKeys.taskMessages(TASK_ID), TIMELINE);
+    const { container } = render(
+      view(qc, [ORIGINAL, { ...STEER, steer_after_seq: null }], {
+        task_id: TASK_ID,
+        status: "running",
+      }),
+    );
+
+    expect(await screen.findByText("Answer after steer")).toBeInTheDocument();
+    expect(rowKeys(container)).toEqual(["user-original", "user-steer", `task:${TASK_ID}`]);
+    expect(screen.queryByTestId("chat-process-segment")).not.toBeInTheDocument();
+  });
+});

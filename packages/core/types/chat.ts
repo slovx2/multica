@@ -203,6 +203,12 @@ export interface ChatMessage {
   message_kind?: ChatMessageKind;
   /** Up to three server-validated follow-ups generated with this reply. */
   quick_actions?: ChatQuickAction[];
+  /**
+   * Set on a user message that was steered into the running turn `task_id`:
+   * the last process `seq` the agent had emitted when it received the message.
+   * The UI splits that turn's process card here. Null for ordinary messages.
+   */
+  steer_after_seq?: number | null;
 }
 
 export interface ChatMessagesCursor {
