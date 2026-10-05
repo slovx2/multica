@@ -1032,6 +1032,77 @@ describe("ChatMessageList steered messages", () => {
       row.getAttribute("data-row-key"),
     );
 
+  // Cross-review regression: adjacent fragments must not merge across a steer.
+  it.each(["text", "thinking"] as const)(
+    "keeps adjacent %s fragments on their own side of a steer boundary",
+    async (type) => {
+      const qc = new QueryClient();
+      qc.setQueryData(chatKeys.taskMessages(TASK_ID), [
+        taskMsg(1, "tool_use", { tool: "Read", input: { path: "before.txt" } }),
+        taskMsg(2, type, { content: "Before guidance. " }),
+        taskMsg(3, type, { content: "After guidance." }),
+      ]);
+      const { container } = render(
+        view(qc, [ORIGINAL, STEER], { task_id: TASK_ID, status: "running" }),
+      );
+      const segment = await screen.findByTestId("chat-process-segment");
+      fireEvent.click(segment.querySelector("button")!);
+      expect(segment).toHaveTextContent("Before guidance.");
+      expect(segment).not.toHaveTextContent("After guidance.");
+      const finalRow = Array.from(container.querySelectorAll("[data-row-key]"))
+        .find((row) => row.getAttribute("data-row-key") === `task:${TASK_ID}`)!;
+      expect(finalRow).toHaveTextContent("After guidance.");
+      expect(finalRow).not.toHaveTextContent("Before guidance.");
+    },
+  );
+
+  it("renders no earlier segment when the steer landed before any process", async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(chatKeys.taskMessages(TASK_ID), TIMELINE.map((m) => ({ ...m, seq: m.seq + 1 })));
+    const { container } = render(
+      view(qc, [ORIGINAL, { ...STEER, steer_after_seq: 0 }], { task_id: TASK_ID, status: "running" }),
+    );
+    expect(await screen.findByText("Answer after steer")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-process-segment")).not.toBeInTheDocument();
+    const keys = rowKeys(container);
+    expect(keys.indexOf("user-steer")).toBeLessThan(keys.indexOf(`task:${TASK_ID}`));
+  });
+
+  it("puts the whole process before a steer whose point is past the last step", async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(chatKeys.taskMessages(TASK_ID), TIMELINE);
+    const { container } = render(
+      view(qc, [ORIGINAL, { ...STEER, steer_after_seq: 99 }], { task_id: TASK_ID, status: "running" }),
+    );
+    const segment = await screen.findByTestId("chat-process-segment");
+    fireEvent.click(segment.querySelector("button")!);
+    expect(segment).toHaveTextContent("Answer after steer");
+    const finalRow = Array.from(container.querySelectorAll("[data-row-key]"))
+      .find((row) => row.getAttribute("data-row-key") === `task:${TASK_ID}`);
+    expect(finalRow?.textContent ?? "").not.toContain("Answer after steer");
+    expect(rowKeys(container)).toEqual([
+      "user-original",
+      `task:${TASK_ID}:to:99`,
+      "user-steer",
+      `task:${TASK_ID}`,
+    ]);
+  });
+
+  it("keeps two steers at the same point in order with unique rows", async () => {
+    const qc = new QueryClient();
+    qc.setQueryData(chatKeys.taskMessages(TASK_ID), TIMELINE);
+    const second = { ...STEER, id: "user-steer-2", content: "And the changelog", created_at: "2026-09-17T00:00:02Z" };
+    const { container } = render(
+      view(qc, [ORIGINAL, STEER, second], { task_id: TASK_ID, status: "running" }),
+    );
+    expect(await screen.findByText("And the changelog")).toBeInTheDocument();
+    const keys = rowKeys(container);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(keys.indexOf("user-steer")).toBeLessThan(keys.indexOf("user-steer-2"));
+    expect(keys.indexOf("user-steer-2")).toBeLessThan(keys.indexOf(`task:${TASK_ID}`));
+    expect(screen.getAllByTestId("chat-process-segment")).toHaveLength(1);
+  });
+
   it("shows the steer after the process so far and continues the live turn below it", async () => {
     const qc = new QueryClient();
     qc.setQueryData(chatKeys.taskMessages(TASK_ID), TIMELINE);

@@ -649,7 +649,7 @@ function AssistantMessage({
   const timeline: ChatTimelineItem[] = useMemo(
     () =>
       transformTimeline(
-        seqRange(buildTimeline(taskMessages ?? []), afterSeq),
+        buildTimeline(seqRange(taskMessages ?? [], afterSeq)),
         transformContent,
       ),
     [taskMessages, transformContent, afterSeq],
@@ -749,13 +749,16 @@ function AssistantMessage({
   );
 }
 
-function seqRange(
-  timeline: ChatTimelineItem[],
+// Slices the raw transcript, before buildTimeline coalesces adjacent
+// text/thinking fragments: a merged item keeps only its first seq, so cutting
+// after merging would pull post-steer text back in front of the steer.
+function seqRange<T extends { seq: number }>(
+  messages: readonly T[],
   afterSeq?: number,
   upToSeq?: number,
-): ChatTimelineItem[] {
-  if (afterSeq === undefined && upToSeq === undefined) return timeline;
-  return timeline.filter(
+): T[] {
+  if (afterSeq === undefined && upToSeq === undefined) return messages as T[];
+  return messages.filter(
     (item) =>
       (afterSeq === undefined || item.seq > afterSeq) &&
       (upToSeq === undefined || item.seq <= upToSeq),
@@ -785,7 +788,7 @@ function AssistantProcessSegment({
   const items = useMemo(
     () =>
       transformTimeline(
-        seqRange(buildTimeline(taskMessages ?? []), afterSeq, upToSeq),
+        buildTimeline(seqRange(taskMessages ?? [], afterSeq, upToSeq)),
         transformContent,
       ),
     [taskMessages, afterSeq, upToSeq, transformContent],
